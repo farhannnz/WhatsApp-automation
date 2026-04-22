@@ -1,6 +1,8 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 
+const PORT = process.env.PORT || 3000;
+
 // session save ke liye
 const client = new Client({
     authStrategy: new LocalAuth()
@@ -30,3 +32,15 @@ client.on('message', message => {
 });
 
 client.initialize();
+
+// Keep the service alive on Render
+const express = require('express');
+const app = express();
+
+app.get('/', (req, res) => {
+    res.send('WhatsApp Bot is running!');
+});
+
+app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+});
