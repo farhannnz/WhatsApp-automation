@@ -3,9 +3,24 @@ const qrcode = require('qrcode-terminal');
 
 const PORT = process.env.PORT || 3000;
 
+// Configure puppeteer for Render
+const puppeteerOptions = {
+    headless: true,
+    args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--disable-gpu'
+    ]
+};
+
 // session save ke liye
 const client = new Client({
-    authStrategy: new LocalAuth()
+    authStrategy: new LocalAuth(),
+    puppeteer: puppeteerOptions
 });
 
 client.on('qr', qr => {
