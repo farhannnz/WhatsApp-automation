@@ -1,0 +1,24 @@
+[
+  [
+    "217480635113724@lid",
+    {
+      "lastMsgAt": 1778693967694,
+      "lastStage": "booking_slot",
+      "convoComplete": true,
+      "branch": "BTF New Chandigarh",
+      "branchKey": "2",
+      "name": "Farru",
+      "userId": "217480635113724@lid",
+      "phone": "ID:217480635113724",
+      "timestamp": 1778693924147,
+      "age": 18,
+      "gender": "M",
+      "goal": "Weight Loss",
+      "fitnessLevel": "Beginner",
+      "preferredTiming": "Flexible",
+      "qualified": true,
+      "bookedSlot": "Tomorrow 7 am",
+      "bookingStatus": "confirmed"
+    }
+  ]
+]

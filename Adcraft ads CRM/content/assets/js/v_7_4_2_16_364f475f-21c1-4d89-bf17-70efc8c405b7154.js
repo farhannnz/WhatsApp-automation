@@ -1,0 +1,1 @@
+function c(o,t){const n=new Blob([Uint8Array.from(atob(o),a=>a.charCodeAt(0))],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}),e=document.createElement("a");e.href=URL.createObjectURL(n),e.download=t,e.click(),e.remove()}export{c as d};

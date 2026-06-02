@@ -1,0 +1,103 @@
+.page { max-width: 1200px; }
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 28px;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.title { font-size: 28px; font-weight: 700; color: #fff; }
+.sub { color: #6b7280; margin-top: 4px; font-size: 14px; }
+
+.actions { display: flex; gap: 10px; align-items: center; }
+
+.search {
+  background: #1e2130;
+  border: 1px solid #2d3148;
+  border-radius: 8px;
+  padding: 9px 14px;
+  color: #e2e8f0;
+  font-size: 14px;
+  width: 220px;
+}
+.search:focus { border-color: #6366f1; outline: none; }
+
+.exportBtn {
+  background: #2d3148;
+  color: #e2e8f0;
+  border-radius: 8px;
+  padding: 9px 16px;
+  font-size: 14px;
+  transition: background 0.15s;
+}
+.exportBtn:hover { background: #3a3f55; }
+
+.flowTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 20px;
+}
+
+.flowTab {
+  background: #1e2130;
+  border: 1px solid #2d3148;
+  color: #9ca3af;
+  border-radius: 20px;
+  padding: 6px 14px;
+  font-size: 13px;
+  transition: all 0.15s;
+}
+.flowTab:hover { border-color: #6366f1; color: #e2e8f0; }
+.activeFlowTab { background: #6366f1; border-color: #6366f1; color: #fff; }
+
+.empty {
+  color: #6b7280;
+  font-size: 14px;
+  padding: 60px;
+  text-align: center;
+  background: #1e2130;
+  border: 1px dashed #2d3148;
+  border-radius: 12px;
+}
+
+.tableWrap {
+  overflow-x: auto;
+  border-radius: 12px;
+  border: 1px solid #2d3148;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table th {
+  background: #1e2130;
+  color: #9ca3af;
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  padding: 12px 14px;
+  text-align: left;
+  border-bottom: 1px solid #2d3148;
+  white-space: nowrap;
+}
+
+.table td {
+  padding: 11px 14px;
+  color: #e2e8f0;
+  border-bottom: 1px solid #1a1d27;
+  white-space: nowrap;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.table tr:last-child td { border-bottom: none; }
+.table tbody tr:hover td { background: #1e2130; }

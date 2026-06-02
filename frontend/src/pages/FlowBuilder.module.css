@@ -1,0 +1,97 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: #0f1117;
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  color: #6b7280;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 20px;
+  background: #1e2130;
+  border-bottom: 1px solid #2d3148;
+  z-index: 10;
+}
+
+.back {
+  background: transparent;
+  color: #9ca3af;
+  font-size: 14px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  transition: color 0.15s;
+}
+.back:hover { color: #e2e8f0; }
+
+.flowName {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.activeBadge {
+  font-size: 11px;
+  color: #4ade80;
+  background: rgba(74,222,128,0.1);
+  padding: 2px 8px;
+  border-radius: 20px;
+}
+
+.topActions { display: flex; gap: 10px; }
+
+.btnSave {
+  background: #6366f1;
+  color: #fff;
+  border-radius: 8px;
+  padding: 8px 18px;
+  font-size: 14px;
+  font-weight: 500;
+  transition: background 0.15s;
+}
+.btnSave:hover:not(:disabled) { background: #4f46e5; }
+.btnSave:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.btnActivate {
+  background: rgba(74,222,128,0.15);
+  color: #4ade80;
+  border-radius: 8px;
+  padding: 8px 18px;
+  font-size: 14px;
+  font-weight: 500;
+  transition: background 0.15s;
+}
+.btnActivate:hover { background: rgba(74,222,128,0.25); }
+
+.builder {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.canvas {
+  flex: 1;
+  height: 100%;
+}
+
+.hint {
+  background: rgba(30,33,48,0.9);
+  border: 1px solid #2d3148;
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 12px;
+  color: #6b7280;
+}

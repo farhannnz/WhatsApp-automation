@@ -1,0 +1,311 @@
+/*
+  $ Estilização Global $
+
+  # Componente Reponsavel por manter estilizações disponiveis a nivel global no projeto
+*/
+
+
+/*
+  => Adiciona a estilização da label ativa no Checked
+*/
+.checkedInput {
+    background-image:
+        linear-gradient(-45deg, transparent 65%, var(--primaria) 65.99%),
+        linear-gradient(45deg, transparent 75%, var(--primaria) 75.99%),
+        linear-gradient(-45deg, var(--primaria) 40%, transparent 40.99%),
+        linear-gradient(45deg, var(--primaria) 30%, var(--letra) 30.99%, var(--letra) 40%, transparent 40.99%),
+        linear-gradient(-45deg, var(--letra) 50%, var(--primaria) 50.99%) !important;
+}
+
+
+
+/*
+  
+    => Adiciona estilização no input date
+  
+  */
+.dateOFF::-webkit-inner-spin-button,
+.dateOFF::-webkit-calendar-picker-indicator {
+    opacity: 0;
+    display: none;
+    -webkit-appearance: none;
+}
+
+.dateON::-webkit-inner-spin-button,
+.dateON::-webkit-calendar-picker-indicator {
+
+    cursor: pointer;
+}
+
+
+
+
+
+.removeBorderTextArea,
+textarea:focus,
+input:focus {
+    box-shadow: 0 0 0 0;
+    outline: 0;
+}
+
+.icons>span {
+    font-size: 14px;
+    font: var(--primary);
+}
+
+.icons>span:hover {
+    cursor: pointer;
+}
+
+.watidy_modal_input {
+    color: var(--primary);
+    box-shadow: 0 0 1px 1px var(--waTidy-message-preview-bg);
+    border-width: initial;
+    border-style: none;
+    border-color: initial;
+    border-image: initial;
+    border-radius: 8px;
+    outline: 0px;
+    padding: 1em;
+    background: var(--waTidy-input-bg);
+}
+
+.waTidy_note_input {
+    width: -webkit-fill-available;
+    height: 5em;
+    margin-top: 0.5em;
+    resize: none;
+    font-size: inherit;
+    font-family: inherit;
+}
+
+.removeArrow,
+input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+}
+
+.boxInput {
+    border: solid rgba(0, 0, 0, 0.5) 1px;
+}
+
+.notFocus:focus {
+    outline: var(--picker-background) solid 1px;
+}
+
+
+
+
+/*
+  
+    Clases globais
+  
+  */
+
+.m0 {
+    margin: 0 !important;
+}
+
+.pulse:hover {
+    animation: pulse;
+    /* referring directly to the animation's @keyframe declaration */
+    animation-duration: 1s;
+    /* don't forget to set a duration! */
+}
+
+.bounce:hover {
+    animation: rubberBand;
+    /* referring directly to the animation's @keyframe declaration */
+    animation-duration: 2s;
+    /* don't forget to set a duration! */
+}
+
+
+
+
+/* Pooper  */
+.popper {
+    font-family: "Roboto", sans-serif;
+    font-weight: bold;
+    font-size: 14px;
+    color: #fff;
+    padding: 8px;
+    border-radius: 4px;
+    padding: 8px;
+    z-index: 999999999;
+}
+
+.popper[data-show] {
+    display: block;
+}
+
+.text-min {
+    text-overflow: ellipsis;
+    white-space-collapse: collapse;
+    text-wrap: nowrap;
+    overflow: hidden;
+}
+
+
+
+
+/*
+  
+    Remove as bordas da lib dos emojis
+  
+  */
+aside.EmojiPickerReact.epr-main {
+    border: none !important;
+}
+
+
+.EmojiPickerReact {
+    background-color: transparent !important;
+}
+
+
+
+
+/*
+  
+   Atribuia as cores da label no Tooltip
+  
+  */
+
+/* Main */
+.lg\:tooltip::before {
+    background-color: var(--terciaria);
+    background-image: linear-gradient(315deg, var(--terciaria) 0%, var(--primaria) 74%);
+    color: var(--letra);
+    z-index: 999999 !important;
+}
+
+.tooltip-w-fit::before {
+    width: fit-content !important;
+}
+
+
+
+/* Top */
+.lg\:tooltip::after {
+    border-color: var(--primaria) transparent transparent transparent;
+}
+
+/* right */
+.lg\:tooltip-right::after {
+    border-color: transparent var(--primaria) transparent transparent;
+}
+
+/* bottom*/
+.lg\:tooltip-bottom::after {
+    border-color: transparent transparent var(--primaria) transparent;
+}
+
+/* left */
+.lg\:tooltip-left::after {
+    border-color: transparent transparent transparent var(--primaria);
+}
+
+
+/*
+    Button base do daisy onde tive que renomer a classe para evitar conflito com o .btn do whatsapp
+  */
+.btn-daisy {
+    display: inline-flex;
+    height: 3rem
+        /* 48px */
+    ;
+    min-height: 3rem
+        /* 48px */
+    ;
+    flex-shrink: 0;
+    cursor: pointer;
+    user-select: none;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--rounded-btn, 0.5rem
+            /* 8px */
+        );
+    border-color: transparent;
+    border-color: oklch(var(--btn-color, var(--b2)) / var(--tw-border-opacity));
+    padding-left: 1rem
+        /* 16px */
+    ;
+    padding-right: 1rem
+        /* 16px */
+    ;
+    text-align: center;
+    font-size: 0.875rem
+        /* 14px */
+    ;
+    line-height: 1em;
+    gap: 0.5rem
+        /* 8px */
+    ;
+    font-weight: 600;
+    text-decoration-line: none;
+    text-decoration-line: none;
+    transition-duration: 200ms;
+    transition-timing-function: cubic-bezier(0, 0, 0.2, 1);
+    border-width: var(--border-btn, 1px);
+    animation: button-pop var(--animation-btn, 0.25s) ease-out;
+    transition-property: color, background-color, border-color, opacity, box-shadow, transform;
+    --tw-text-opacity: 1;
+    color: var(--fallback-bc, oklch(var(--bc)/var(--tw-text-opacity)));
+    --tw-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+    --tw-shadow-colored: 0 1px 2px 0 var(--tw-shadow-color);
+    box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+    outline-color: var(--fallback-bc, oklch(var(--bc)/1));
+    background-color: oklch(var(--btn-color, var(--b2)) / var(--tw-bg-opacity));
+    --tw-bg-opacity: 1;
+    --tw-border-opacity: 1;
+}
+
+
+/* 
+    => Usuarios MAC estavam tendo os modais criando pelo Izi todo em branco devido a um erro de CSS provavelmente induzido devido a uma divergencia com o CSS do whatsapp
+  */
+.iziToast.iziToast-animateInside .iziToast-title,
+.iziToast.iziToast-animateInside .iziToast-message,
+.iziToast.iziToast-animateInside .iziToast-icon,
+.iziToast.iziToast-animateInside .iziToast-buttons-child,
+.iziToast.iziToast-animateInside .iziToast-inputs-child {
+    opacity: 1 !important;
+}
+
+
+
+/* 
+    Remove o embaçar do do daisyUI
+  */
+.textarea,
+.tab,
+.tab-active,
+.tabs-boxed {
+    --tw-bg-opacity: 0 !important;
+}
+
+
+/* 
+    Remove o plano de fundo do componete nativo de audio do navegador
+  */
+.audio-transparent::-webkit-media-controls-enclosure {
+    background-color: transparent !important;
+}
+
+
+
+/*
+    Icone de video chamada presente no whatsapp normal para induzir o usuario a utilizar o whatsapp instalado
+  */
+div.x1n2onr6.x5yr21d.xdxvlk3.x1fglp.x1rp6h8o.xg6i1s1.x15406qy.x1d8287x.xwji4o3.xj8bxqt.x1o9mn2u.xpbnuc5.x2btq54.x86at4b.xzl7c9v.x1ad89wd.x1i1grao.x17adc0v.x1sln4lm.x1iji9kk.x1y1aw1k.xs9asl8 {
+    display: none;
+    opacity: 0 !important;
+}
+
+
+
+/* Altera a estilização base do IziToash */
+.bg-izitoash {
+    background: var(--primaria) !important;
+}

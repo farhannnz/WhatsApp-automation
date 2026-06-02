@@ -1,0 +1,54 @@
+{
+"update_url": "https://clients2.google.com/service/update2/crx",
+
+  "manifest_version": 3,
+  "name": "GD CRM: Superpowers for your WhatsApp, CRM and more",
+  "version": "8.7.8",
+  "description": "GD Whatsapp CRM is a CRM for WhatsApp Web. Organize your chats and optimize your business on WhatsApp Web",
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_icon": "label/icons/icon.png"
+  },
+  "icons": {
+    "128": "label/icons/icon.png"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://web.whatsapp.com/*"
+      ],
+      "js": [
+        "content/index.js"
+      ],
+      "css": [
+        "label/css/whatzicrm.css",
+        "content/assets/css/style.css",
+        "content.css"
+      ]
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "matches": [
+        "https://web.whatsapp.com/*"
+      ],
+      "resources": [
+        "*.js",
+        "*.css",
+        "*.png",
+        "*.mp3",
+        ".ttf",
+        "label/*.json",
+        "label/*.png"
+      ]
+    }
+  ],
+  "permissions": [
+    "unlimitedStorage",
+    "storage",
+    "alarms",
+    "tabs"
+  ]
+}

@@ -1,8 +1,9 @@
 services:
   - type: web
     name: whatsapp-bot
-    env: docker
-    dockerfilePath: ./Dockerfile
+    env: node
+    buildCommand: npm install
+    startCommand: npm start
     envVars:
       - key: NODE_ENV
         value: production

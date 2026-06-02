@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Webhook Test</title>
+</head>
+<body>
+
+    <h2>Test Form</h2>
+
+    <input type="text" id="name" placeholder="Name"><br><br>
+
+    <input type="text" id="phone" placeholder="Phone"><br><br>
+
+    <textarea id="message" placeholder="Message"></textarea><br><br>
+
+    <button onclick="sendData()">Send</button>
+
+    <script>
+        async function sendData() {
+
+            const data = {
+                name: document.getElementById("name").value,
+                phone: document.getElementById("phone").value,
+                message: document.getElementById("message").value
+            };
+
+            try {
+
+                const response = await fetch(
+                    "https://app.wasimple.in/api/v1/chatbot/webhook/32c895cb-f4d4-42aa-ae33-5f9cc4a03c35",
+                    {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json"
+                        },
+                        body: JSON.stringify(data)
+                    }
+                );
+
+                const text = await response.text();
+
+                alert("Response: " + text);
+
+            } catch (err) {
+                alert("Error: " + err);
+            }
+        }
+    </script>
+
+</body>
+</html>

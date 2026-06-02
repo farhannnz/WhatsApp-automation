@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BTF Lead Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background: #0f0f0f;
+            color: #e0e0e0;
+            min-height: 100vh;
+        }
+
+        header {
+            background: linear-gradient(135deg, #1a1a1a, #2a2a2a);
+            border-bottom: 2px solid #e63946;
+            padding: 18px 32px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        header h1 {
+            font-size: 1.6rem;
+            color: #fff;
+            letter-spacing: 1px;
+        }
+
+        header h1 span {
+            color: #e63946;
+        }
+
+        header .last-updated {
+            font-size: 0.78rem;
+            color: #888;
+        }
+
+        .container {
+            padding: 28px 32px;
+        }
+
+        /* STATS */
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 16px;
+            margin-bottom: 28px;
+        }
+
+        .stat-card {
+            background: #1a1a1a;
+            border: 1px solid #2a2a2a;
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            transition: border-color .2s;
+        }
+
+        .stat-card:hover {
+            border-color: #e63946;
+        }
+
+        .stat-card .num {
+            font-size: 2.2rem;
+            font-weight: 700;
+            color: #e63946;
+        }
+
+        .stat-card .label {
+            font-size: 0.78rem;
+            color: #888;
+            margin-top: 4px;
+            text-transform: uppercase;
+            letter-spacing: .5px;
+        }
+
+        /* FILTERS */
+        .filters {
+            background: #1a1a1a;
+            border: 1px solid #2a2a2a;
+            border-radius: 12px;
+            padding: 20px 24px;
+            margin-bottom: 24px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 14px;
+            align-items: flex-end;
+        }
+
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .filter-group label {
+            font-size: 0.72rem;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: .5px;
+        }
+
+        .filter-group input,
+        .filter-group select {
+            background: #111;
+            border: 1px solid #333;
+            color: #e0e0e0;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            outline: none;
+            min-width: 150px;
+        }
+
+        .filter-group input:focus,
+        .filter-group select:focus {
+            border-color: #e63946;
+        }
+
+        .filter-actions {
+            display: flex;
+            gap: 10px;
+            align-items: flex-end;
+            margin-left: auto;
+        }
+
+        .btn {
+            padding: 8px 18px;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 600;
+            transition: opacity .2s;
+        }
+
+        .btn:hover {
+            opacity: .85;
+        }
+
+        .btn-red {
+            background: #e63946;
+            color: #fff;
+        }
+
+        .btn-outline {
+            background: transparent;
+            border: 1px solid #444;
+            color: #ccc;
+        }
+
+        .btn-green {
+            background: #2a9d5c;
+            color: #fff;
+        }
+
+        /* TABLE */
+        .table-wrap {
+            overflow-x: auto;
+            border-radius: 12px;
+            border: 1px solid #2a2a2a;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+        }
+
+        thead {
+            background: #1e1e1e;
+        }
+
+        thead th {
+            padding: 13px 16px;
+            text-align: left;
+            color: #aaa;
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: .5px;
+            cursor: pointer;
+            user-select: none;
+            white-space: nowrap;
+        }
+
+        thead th:hover {
+            color: #e63946;
+        }
+
+        thead th .sort-icon {
+            margin-left: 4px;
+            opacity: .5;
+        }
+
+        tbody tr {
+            border-top: 1px solid #1e1e1e;
+            transition: background .15s;
+        }
+
+        tbody tr:hover {
+            background: #1a1a1a;
+        }
+
+        tbody td {
+            padding: 12px 16px;
+            vertical-align: middle;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 0.72rem;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .badge-green {
+            background: #1a3d2b;
+            color: #2a9d5c;
+        }
+
+        .badge-yellow {
+            background: #3d3010;
+            color: #f4a261;
+        }
+
+        .badge-red {
+            background: #3d1010;
+            color: #e63946;
+        }
+
+        .badge-blue {
+            background: #0d2a3d;
+            color: #4cc9f0;
+        }
+
+        .badge-gray {
+            background: #222;
+            color: #888;
+        }
+
+        .phone {
+            color: #4cc9f0;
+            font-family: monospace;
+            font-size: 0.82rem;
+        }
+
+        .no-data {
+            text-align: center;
+            padding: 60px;
+            color: #555;
+            font-size: 1rem;
+        }
+
+        /* PAGINATION */
+        .pagination {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 20px;
+        }
+
+        .pagination .info {
+            font-size: 0.8rem;
+            color: #666;
+        }
+
+        .page-btns {
+            display: flex;
+            gap: 6px;
+        }
+
+        .page-btn {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            color: #ccc;
+            padding: 6px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.82rem;
+        }
+
+        .page-btn.active {
+            background: #e63946;
+            border-color: #e63946;
+            color: #fff;
+        }
+
+        .page-btn:hover:not(.active) {
+            border-color: #555;
+        }
+
+        /* MODAL */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, .75);
+            z-index: 100;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-overlay.open {
+            display: flex;
+        }
+
+        .modal {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 14px;
+            padding: 28px;
+            width: 480px;
+            max-width: 95vw;
+            position: relative;
+        }
+
+        .modal h2 {
+            font-size: 1.1rem;
+            margin-bottom: 18px;
+            color: #fff;
+        }
+
+        .modal-close {
+            position: absolute;
+            top: 16px;
+            right: 18px;
+            background: none;
+            border: none;
+            color: #888;
+            font-size: 1.3rem;
+            cursor: pointer;
+        }
+
+        .modal-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 9px 0;
+            border-bottom: 1px solid #222;
+            font-size: 0.85rem;
+        }
+
+        .modal-row:last-child {
+            border-bottom: none;
+        }
+
+        .modal-row .key {
+            color: #888;
+        }
+
+        .modal-row .val {
+            color: #e0e0e0;
+            font-weight: 500;
+            text-align: right;
+            max-width: 60%;
+            word-break: break-all;
+        }
+
+        .upload-area {
+            background: #111;
+            border: 2px dashed #333;
+            border-radius: 10px;
+            padding: 30px;
+            text-align: center;
+            cursor: pointer;
+            margin-bottom: 24px;
+            transition: border-color .2s;
+        }
+
+        .upload-area:hover {
+            border-color: #e63946;
+        }
+
+        .upload-area p {
+            color: #666;
+            font-size: 0.85rem;
+            margin-top: 8px;
+        }
+
+        .upload-area .icon {
+            font-size: 2rem;
+        }
+    </style>
+</head>
+
+<body>
+
+    <header>
+        <h1>🥊 BTF <span>Lead Dashboard</span></h1>
+        <span class="last-updated" id="lastUpdated">No data loaded</span>
+    </header>
+
+    <div class="container">
+
+        <!-- Upload -->
+        <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
+            <div class="icon">📂</div>
+            <strong>Click to load leads.json</strong>
+            <p>Or drag & drop the file here</p>
+            <input type="file" id="fileInput" accept=".json" style="display:none" />
+        </div>
+
+        <!-- Stats -->
+        <div class="stats" id="statsRow">
+            <div class="stat-card">
+                <div class="num" id="s-total">0</div>
+                <div class="label">Total Leads</div>
+            </div>
+            <div class="stat-card">
+                <div class="num" id="s-qualified">0</div>
+                <div class="label">Qualified</div>
+            </div>
+            <div class="stat-card">
+                <div class="num" id="s-booked">0</div>
+                <div class="label">Booked Trial</div>
+            </div>
+            <div class="stat-card">
+                <div class="num" id="s-handover">0</div>
+                <div class="label">Handovers</div>
+            </div>
+            <div class="stat-card">
+                <div class="num" id="s-chd">0</div>
+                <div class="label">Chandigarh</div>
+            </div>
+            <div class="stat-card">
+                <div class="num" id="s-nchd">0</div>
+                <div class="label">New Chandigarh</div>
+            </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="filters">
+            <div class="filter-group">
+                <label>Search</label>
+                <input type="text" id="f-search" placeholder="Name / Phone..." oninput="applyFilters()" />
+            </div>
+            <div class="filter-group">
+                <label>Branch</label>
+                <select id="f-branch" onchange="applyFilters()">
+                    <option value="">All Branches</option>
+                    <option value="BTF Chandigarh">Chandigarh</option>
+                    <option value="BTF New Chandigarh">New Chandigarh</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label>Status</label>
+                <select id="f-status" onchange="applyFilters()">
+                    <option value="">All Status</option>
+                    <option value="confirmed">Booked</option>
+                    <option value="qualified">Qualified</option>
+                    <option value="handover">Handover</option>
+                    <option value="new">New</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label>Goal</label>
+                <select id="f-goal" onchange="applyFilters()">
+                    <option value="">All Goals</option>
+                    <option value="Weight Loss">Weight Loss</option>
+                    <option value="Build Muscle">Build Muscle</option>
+                    <option value="Boxing Technique">Boxing Technique</option>
+                    <option value="Fitness/Stamina">Fitness/Stamina</option>
+                    <option value="Competitive Boxing">Competitive Boxing</option>
+                    <option value="General Wellness">General Wellness</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label>Level</label>
+                <select id="f-level" onchange="applyFilters()">
+                    <option value="">All Levels</option>
+                    <option value="Beginner">Beginner</option>
+                    <option value="Intermediate">Intermediate</option>
+                    <option value="Advanced">Advanced</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label>Gender</label>
+                <select id="f-gender" onchange="applyFilters()">
+                    <option value="">All</option>
+                    <option value="M">Male</option>
+                    <option value="F">Female</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label>Sort By</label>
+                <select id="f-sort" onchange="applyFilters()">
+                    <option value="newest">Newest First</option>
+                    <option value="oldest">Oldest First</option>
+                    <option value="name">Name A-Z</option>
+                    <option value="age">Age</option>
+                </select>
+            </div>
+            <div class="filter-actions">
+                <button class="btn btn-green" onclick="exportCSV()">⬇ Export CSV</button>
+                <button class="btn btn-outline" onclick="resetFilters()">✕ Reset</button>
+            </div>
+        </div>
+
+        <!-- Table -->
+        <div class="table-wrap">
+            <table id="leadsTable">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Phone</th>
+                        <th>Name</th>
+                        <th>Age</th>
+                        <th>Gender</th>
+                        <th>Branch</th>
+                        <th>Goal</th>
+                        <th>Level</th>
+                        <th>Timing</th>
+                        <th>Status</th>
+                        <th>Booked Slot</th>
+                        <th>Date</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody">
+                    <tr>
+                        <td colspan="13" class="no-data">Load a leads.json file to get started 👆</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="pagination">
+            <div class="info" id="pageInfo"></div>
+            <div class="page-btns" id="pageBtns"></div>
+        </div>
+    </div>
+
+    <!-- Detail Modal -->
+    <div class="modal-overlay" id="modal">
+        <div class="modal">
+            <button class="modal-close" onclick="closeModal()">✕</button>
+            <h2>👤 Lead Details</h2>
+            <div id="modalContent"></div>
+        </div>
+    </div>
+
+
+    <script>
+        let allLeads = [];
+        let filtered = [];
+        let currentPage = 1;
+        const PER_PAGE = 20;
+
+        // File upload
+        const fileInput = document.getElementById('fileInput');
+        const uploadArea = document.getElementById('uploadArea');
+
+        fileInput.addEventListener('change', e => {
+            const file = e.target.files[0];
+            if (file) readFile(file);
+        });
+        uploadArea.addEventListener('dragover', e => { e.preventDefault(); uploadArea.style.borderColor = '#e63946'; });
+        uploadArea.addEventListener('dragleave', () => { uploadArea.style.borderColor = '#333'; });
+        uploadArea.addEventListener('drop', e => {
+            e.preventDefault();
+            uploadArea.style.borderColor = '#333';
+            const file = e.dataTransfer.files[0];
+            if (file) readFile(file);
+        });
+
+        function readFile(file) {
+            const reader = new FileReader();
+            reader.onload = e => {
+                try {
+                    const raw = JSON.parse(e.target.result);
+                    allLeads = raw.map(([userId, lead]) => ({ ...lead, userId }));
+                    document.getElementById('uploadArea').style.display = 'none';
+                    document.getElementById('lastUpdated').textContent = `Loaded ${allLeads.length} leads · ${new Date().toLocaleTimeString()}`;
+                    applyFilters();
+                } catch { alert('Invalid JSON file.'); }
+            };
+            reader.readAsText(file);
+        }
+
+        // Filters
+        function applyFilters() {
+            const search = document.getElementById('f-search').value.toLowerCase();
+            const branch = document.getElementById('f-branch').value;
+            const status = document.getElementById('f-status').value;
+            const goal = document.getElementById('f-goal').value;
+            const level = document.getElementById('f-level').value;
+            const gender = document.getElementById('f-gender').value;
+            const sort = document.getElementById('f-sort').value;
+
+            filtered = allLeads.filter(l => {
+                const phone = extractPhone(l.userId);
+                if (search && !((l.name || '').toLowerCase().includes(search) || phone.includes(search))) return false;
+                if (branch && l.branch !== branch) return false;
+                if (goal && l.goal !== goal) return false;
+                if (level && l.fitnessLevel !== level) return false;
+                if (gender && (l.gender || '').toUpperCase().charAt(0) !== gender) return false;
+                if (status) {
+                    if (status === 'confirmed' && l.bookingStatus !== 'confirmed') return false;
+                    if (status === 'qualified' && (!l.qualified || l.bookingStatus === 'confirmed')) return false;
+                    if (status === 'handover' && !l.handoverRequested) return false;
+                    if (status === 'new' && (l.qualified || l.handoverRequested)) return false;
+                }
+                return true;
+            });
+
+            filtered.sort((a, b) => {
+                if (sort === 'newest') return (b.timestamp || 0) - (a.timestamp || 0);
+                if (sort === 'oldest') return (a.timestamp || 0) - (b.timestamp || 0);
+                if (sort === 'name') return (a.name || '').localeCompare(b.name || '');
+                if (sort === 'age') return (a.age || 0) - (b.age || 0);
+                return 0;
+            });
+
+            currentPage = 1;
+            updateStats();
+            renderTable();
+            renderPagination();
+        }
+
+        function resetFilters() {
+            ['f-search', 'f-branch', 'f-status', 'f-goal', 'f-level', 'f-gender'].forEach(id => {
+                document.getElementById(id).value = '';
+            });
+            document.getElementById('f-sort').value = 'newest';
+            applyFilters();
+        }
+
+        // Stats
+        function updateStats() {
+            const leads = allLeads;
+            document.getElementById('s-total').textContent = leads.length;
+            document.getElementById('s-qualified').textContent = leads.filter(l => l.qualified).length;
+            document.getElementById('s-booked').textContent = leads.filter(l => l.bookingStatus === 'confirmed').length;
+            document.getElementById('s-handover').textContent = leads.filter(l => l.handoverRequested).length;
+            document.getElementById('s-chd').textContent = leads.filter(l => (l.branch || '').includes('Chandigarh') && !(l.branch || '').includes('New')).length;
+            document.getElementById('s-nchd').textContent = leads.filter(l => (l.branch || '').includes('New')).length;
+        }
+
+        // Table
+        function renderTable() {
+            const tbody = document.getElementById('tableBody');
+            const start = (currentPage - 1) * PER_PAGE;
+            const page = filtered.slice(start, start + PER_PAGE);
+
+            if (page.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="13" class="no-data">No leads match your filters.</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = page.map((l, i) => {
+                const phone = extractPhone(l.userId);
+                const status = getStatus(l);
+                const date = l.timestamp ? new Date(l.timestamp).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' }) : '—';
+                return `
+        <tr>
+          <td style="color:#555">${start + i + 1}</td>
+          <td><span class="phone">${phone}</span></td>
+          <td>${l.name || '<span style="color:#555">—</span>'}</td>
+          <td>${l.age || '—'}</td>
+          <td>${genderLabel(l.gender)}</td>
+          <td>${branchBadge(l.branch)}</td>
+          <td>${l.goal || '—'}</td>
+          <td>${levelBadge(l.fitnessLevel)}</td>
+          <td style="font-size:.78rem;color:#aaa">${l.preferredTiming || '—'}</td>
+          <td>${statusBadge(status)}</td>
+          <td style="font-size:.78rem;color:#aaa">${l.bookedSlot || '—'}</td>
+          <td style="font-size:.78rem;color:#666">${date}</td>
+          <td><button class="btn btn-outline" style="padding:4px 10px;font-size:.75rem" onclick="openModal(${start + i})">View</button></td>
+        </tr>`;
+            }).join('');
+        }
+
+        // Pagination
+        function renderPagination() {
+            const total = filtered.length;
+            const pages = Math.ceil(total / PER_PAGE);
+            const start = (currentPage - 1) * PER_PAGE + 1;
+            const end = Math.min(currentPage * PER_PAGE, total);
+
+            document.getElementById('pageInfo').textContent = total ? `Showing ${start}–${end} of ${total} leads` : '';
+
+            const btns = document.getElementById('pageBtns');
+            btns.innerHTML = '';
+            for (let p = 1; p <= pages; p++) {
+                const b = document.createElement('button');
+                b.className = 'page-btn' + (p === currentPage ? ' active' : '');
+                b.textContent = p;
+                b.onclick = () => { currentPage = p; renderTable(); renderPagination(); };
+                btns.appendChild(b);
+            }
+        }
+
+        // Modal
+        function openModal(idx) {
+            const l = filtered[idx];
+            const rows = [
+                ['Phone', extractPhone(l.userId)],
+                ['Name', l.name || '—'],
+                ['Age', l.age || '—'],
+                ['Gender', genderLabel(l.gender)],
+                ['Branch', l.branch || '—'],
+                ['Goal', l.goal || '—'],
+                ['Fitness Level', l.fitnessLevel || '—'],
+                ['Preferred Time', l.preferredTiming || '—'],
+                ['Status', getStatus(l)],
+                ['Booked Slot', l.bookedSlot || '—'],
+                ['Handover Reason', l.handoverReason || '—'],
+                ['Date Added', l.timestamp ? new Date(l.timestamp).toLocaleString('en-IN') : '—'],
+            ];
+            document.getElementById('modalContent').innerHTML = rows
+                .filter(([, v]) => v && v !== '—')
+                .map(([k, v]) => `<div class="modal-row"><span class="key">${k}</span><span class="val">${v}</span></div>`)
+                .join('');
+            document.getElementById('modal').classList.add('open');
+        }
+
+        function closeModal() { document.getElementById('modal').classList.remove('open'); }
+        document.getElementById('modal').addEventListener('click', e => {
+            if (e.target === document.getElementById('modal')) closeModal();
+        });
+
+        // Export CSV
+        function exportCSV() {
+            if (!filtered.length) return alert('No data to export.');
+            const headers = ['Phone', 'Name', 'Age', 'Gender', 'Branch', 'Goal', 'Level', 'Timing', 'Status', 'Booked Slot', 'Date'];
+            const rows = filtered.map(l => [
+                extractPhone(l.userId), l.name || '', l.age || '', genderLabel(l.gender),
+                l.branch || '', l.goal || '', l.fitnessLevel || '', l.preferredTiming || '',
+                getStatus(l), l.bookedSlot || '',
+                l.timestamp ? new Date(l.timestamp).toLocaleDateString('en-IN') : ''
+            ].map(v => `"${v}"`).join(','));
+
+            const csv = [headers.join(','), ...rows].join('\n');
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+            a.download = `btf-leads-${new Date().toISOString().slice(0, 10)}.csv`;
+            a.click();
+        }
+
+        // Helpers
+        function extractPhone(userId) {
+            if (!userId) return '—';
+            const match = userId.match(/^(\d+)@/);
+            return match ? '+' + match[1] : userId;
+        }
+
+        function getStatus(l) {
+            if (l.bookingStatus === 'confirmed') return 'Booked';
+            if (l.handoverRequested) return 'Handover';
+            if (l.qualified) return 'Qualified';
+            return 'New';
+        }
+
+        function statusBadge(s) {
+            const map = { Booked: 'badge-green', Handover: 'badge-red', Qualified: 'badge-yellow', New: 'badge-gray' };
+            return `<span class="badge ${map[s] || 'badge-gray'}">${s}</span>`;
+        }
+
+        function levelBadge(l) {
+            if (!l) return '—';
+            const map = { Beginner: 'badge-blue', Intermediate: 'badge-yellow', Advanced: 'badge-red' };
+            return `<span class="badge ${map[l] || 'badge-gray'}">${l}</span>`;
+        }
+
+        function branchBadge(b) {
+            if (!b) return '—';
+            const cls = b.includes('New') ? 'badge-blue' : 'badge-yellow';
+            const short = b.includes('New') ? 'New CHD' : 'CHD';
+            return `<span class="badge ${cls}">${short}</span>`;
+        }
+
+        function genderLabel(g) {
+            if (!g) return '—';
+            const u = g.toUpperCase();
+            if (u === 'M' || u === 'MALE') return '♂ Male';
+            if (u === 'F' || u === 'FEMALE') return '♀ Female';
+            return g;
+        }
+    </script>
+</body>
+
+</html>

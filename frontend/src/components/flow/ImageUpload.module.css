@@ -1,0 +1,36 @@
+.wrap { width: 100%; }
+
+.uploadBtn {
+  width: 100%;
+  background: #2d3148;
+  color: #9ca3af;
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 13px;
+  border: 1px dashed #3a3f55;
+  transition: all 0.15s;
+}
+.uploadBtn:hover:not(:disabled) { border-color: #6366f1; color: #e2e8f0; }
+.uploadBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.previewWrap { position: relative; }
+
+.preview {
+  width: 100%;
+  max-height: 140px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid #2d3148;
+}
+
+.removeBtn {
+  margin-top: 6px;
+  width: 100%;
+  background: rgba(248,113,113,0.1);
+  color: #f87171;
+  border-radius: 6px;
+  padding: 6px;
+  font-size: 12px;
+  transition: background 0.15s;
+}
+.removeBtn:hover { background: rgba(248,113,113,0.2); }
