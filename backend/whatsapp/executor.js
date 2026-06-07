@@ -13,6 +13,67 @@
  */
 
 const { db, rtdb } = require('../firebase');
+const axios = require('axios');
+const { google } = require('googleapis');
+const path = require('path');
+const fs = require('fs');
+
+// Append a row to a Google Sheet using service account (same as index.js approach)
+async function appendToSheet(sheetUrl, data) {
+    // Extract sheet ID from URL
+    const match = sheetUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+    if (!match) { console.error('Invalid sheet URL'); return; }
+    const sheetId = match[1];
+
+    // Find service account key file
+    const keyFile = process.env.GOOGLE_KEY_FILE ||
+        path.join(__dirname, '..', 'fake-1582b-firebase-adminsdk-fbsvc-878526e19e.json');
+
+    if (!fs.existsSync(keyFile)) {
+        console.warn('⚠️ Google service account key not found:', keyFile);
+        return;
+    }
+
+    const auth = new google.auth.GoogleAuth({
+        keyFile,
+        scopes: ['https://www.googleapis.com/auth/spreadsheets']
+    });
+
+    const sheets = google.sheets({ version: 'v4', auth });
+
+    // Flatten — skip nested objects
+    const flat = {};
+    for (const [k, v] of Object.entries(data)) {
+        if (typeof v !== 'object') flat[k] = v;
+    }
+
+    // Check if header row exists
+    const existing = await sheets.spreadsheets.values.get({
+        spreadsheetId: sheetId,
+        range: 'A1:Z1'
+    }).catch(() => ({ data: { values: [] } }));
+
+    if (!existing.data.values || existing.data.values.length === 0) {
+        // Write headers first
+        await sheets.spreadsheets.values.update({
+            spreadsheetId: sheetId,
+            range: 'A1',
+            valueInputOption: 'RAW',
+            requestBody: { values: [Object.keys(flat)] }
+        });
+    }
+
+    // Append data row
+    await sheets.spreadsheets.values.append({
+        spreadsheetId: sheetId,
+        range: 'A1',
+        valueInputOption: 'USER_ENTERED',
+        insertDataOption: 'INSERT_ROWS',
+        requestBody: { values: [Object.values(flat).map(String)] }
+    });
+
+    console.log('✅ Sheet row appended');
+}
 
 // In-memory conversation state: Map<userId_contactId, stateObj>
 const convState = new Map();
@@ -74,7 +135,7 @@ function findMatchingTrigger(flow, msg) {
     return null;
 }
 
-async function saveLead(userId, contactId, data) {
+async function saveLead(userId, contactId, data, sheetUrl) {
     const phone = contactId.replace('@c.us', '');
     const key = `${userId}_${phone}`;
     console.log(`💾 Saving lead: ${phone} | fields: ${Object.keys(data).join(', ')}`);
@@ -90,6 +151,12 @@ async function saveLead(userId, contactId, data) {
             ...data, phone, updatedAt: Date.now()
         });
         console.log(`✅ Lead saved: ${phone}`);
+        // Also append to Google Sheet if configured
+        if (sheetUrl) {
+            await appendToSheet(sheetUrl, { phone, ...data }).catch(e =>
+                console.error('Sheet append error:', e.message)
+            );
+        }
     } catch (err) {
         console.error('❌ Lead save error:', err.message);
     }
@@ -100,6 +167,7 @@ async function executeNode(userId, flow, node, message, client, contactData) {
 
     const contactId = message.from;
     const { type, data } = node;
+    const sheetUrl = flow.sheetUrl || null;
 
     switch (type) {
         case 'trigger': {
@@ -250,21 +318,31 @@ async function executeNode(userId, flow, node, message, client, contactData) {
 
         case 'handover': {
             const notifyNumber = data.notifyNumber;
-            const notifyMsg = data.notifyMessage || `New lead from ${contactId}:\n${JSON.stringify(contactData, null, 2)}`;
+            const notifyMsg = (data.notifyMessage || `New lead from ${contactId}:\n${JSON.stringify(contactData, null, 2)}`).replace(/\{\{(\w+)\}\}/g, (_, key) => contactData[key] || '');
+            const replyText = (data.replyText || '').replace(/\{\{(\w+)\}\}/g, (_, key) => contactData[key] || '');
             if (notifyNumber) {
                 const waId = notifyNumber.replace(/\D/g, '') + '@c.us';
                 try { await client.sendMessage(waId, notifyMsg); } catch { }
             }
-            if (data.replyText) await message.reply(data.replyText);
-            // Mark as handed over — bot stops responding to this contact
+            if (replyText) await message.reply(replyText);
             setState(userId, contactId, { handedOver: true, flowId: flow.id, contactData });
-            await saveLead(userId, contactId, { ...contactData, handedOver: true });
+            await saveLead(userId, contactId, { ...contactData, handedOver: true }, sheetUrl);
+            if (flow.btfConfig) {
+                const btf = require('./btfService');
+                btf.markCompleted(contactId);
+                await btf.saveToSheet(contactId, { ...contactData, handedOver: true, lastStage: 'completed' });
+                await btf.notifyAmit(userId, contactId, contactData);
+            }
             break;
         }
 
         case 'save_data': {
-            // Explicit save node — saves all collected data to Firebase
-            await saveLead(userId, contactId, contactData);
+            await saveLead(userId, contactId, contactData, sheetUrl);
+            if (flow.btfConfig) {
+                const btf = require('./btfService');
+                btf.updateLeadData(contactId, contactData);
+                await btf.saveToSheet(contactId, { ...contactData, lastStage: 'save_data' });
+            }
             const next = nextNode(flow, node.id);
             if (next) await executeNode(userId, flow, next, message, client, contactData);
             break;
@@ -272,7 +350,12 @@ async function executeNode(userId, flow, node, message, client, contactData) {
 
         case 'end': {
             if (data.text) await message.reply(data.text);
-            await saveLead(userId, contactId, { ...contactData, completed: true });
+            await saveLead(userId, contactId, { ...contactData, completed: true }, sheetUrl);
+            if (flow.btfConfig) {
+                const btf = require('./btfService');
+                btf.markCompleted(contactId);
+                await btf.saveToSheet(contactId, { ...contactData, completed: true, lastStage: 'completed' });
+            }
             clearState(userId, contactId);
             break;
         }
@@ -287,6 +370,32 @@ async function handleMessage(userId, flow, message, client) {
     const msg = message.body.trim();
     const state = getState(userId, contactId);
 
+    // BTF-specific handling
+    if (flow.btfConfig) {
+        const btf = require('./btfService');
+
+        // Start reminder checker once
+        btf.startReminderChecker(userId);
+
+        // ".." toggles pause
+        if (msg === '..') {
+            btf.togglePause(contactId);
+            return;
+        }
+
+        // Bot paused for this contact
+        if (btf.isPaused(contactId)) return;
+
+        // Price keywords auto-reply
+        if (btf.isPriceQuery(msg)) {
+            await message.reply('Our programs are customized based on your goals, experience level, and coaching requirements.\n\nAt BTF, we focus on results, structure, and real progression rather than just selling memberships. 💪\n\nOur team will share all details when they reach out to you!');
+            return;
+        }
+
+        // Track activity
+        btf.trackActivity(contactId, state?.nodeId || 'initial');
+    }
+
     // If handed over, bot is silent
     if (state && state.handedOver) return;
 
@@ -298,10 +407,19 @@ async function handleMessage(userId, flow, message, client) {
         let contactData = { ...state.contactData };
 
         if (state.waitingFor === 'collect') {
-            // Save the collected value
             contactData[state.field] = msg;
-            // Auto-save to Firebase on every collect
-            await saveLead(userId, contactId, contactData);
+            await saveLead(userId, contactId, contactData, flow.sheetUrl);
+
+            // BTF: update sheet + schedule trial reminders if timing just collected
+            if (flow.btfConfig) {
+                const btf = require('./btfService');
+                btf.updateLeadData(contactId, contactData);
+                await btf.saveToSheet(contactId, { ...contactData, lastStage: state.field });
+                if (state.field === 'timing') {
+                    btf.scheduleTrialReminders(userId, contactId, msg);
+                }
+            }
+
             clearState(userId, contactId);
             const next = nextNode(flow, node.id);
             if (next) {
@@ -336,7 +454,7 @@ async function handleMessage(userId, flow, message, client) {
 
             const chosen = opts[idx];
             if (node.data.saveField) contactData[node.data.saveField] = chosen.label;
-            await saveLead(userId, contactId, contactData);
+            await saveLead(userId, contactId, contactData, flow.sheetUrl);
             clearState(userId, contactId);
             const next = nextNode(flow, node.id, `option_${idx}`);
             if (next) await executeNode(userId, flow, next, message, client, contactData);
@@ -356,7 +474,7 @@ async function handleMessage(userId, flow, message, client) {
     if (phoneMatch) phone = phoneMatch[1];
 
     const contactData = { phone, startedAt: new Date().toISOString(), flowId: flow.id, flowName: flow.name || '' };
-    await saveLead(userId, contactId, contactData);
+    await saveLead(userId, contactId, contactData, flow.sheetUrl);
     await executeNode(userId, flow, trigger, message, client, contactData);
 }
 

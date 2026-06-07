@@ -5,6 +5,11 @@ const path = require('path');
 const { db, rtdb } = require('../firebase');
 const flowExecutor = require('./executor');
 
+// BTF bot username — messages for this user go to index.js logic directly
+const BTF_USERNAME = 'boxtofit';
+let btfUserId = null; // resolved at runtime from Firebase
+let btfBot = null;    // lazy loaded index.js module
+
 // RTDB paths — prefixed to avoid conflicts with other bots on same Firebase
 const RTDB_STATUS = (uid) => `wbp_waStatus/${uid}`;
 const RTDB_QR     = (uid) => `wbp_waQR/${uid}`;
@@ -101,6 +106,20 @@ async function createSession(userId) {
         } catch (e) {
             console.log(`ℹ️ WPP injection failed: ${e.message}`);
         }
+
+        // BTF: check if this is boxtofit user, init BTF bot with this client
+        try {
+            const snap = await db.collection('wbp_users')
+                .where('username', '==', BTF_USERNAME).limit(1).get();
+            if (!snap.empty && snap.docs[0].id === userId) {
+                btfUserId = userId;
+                btfBot = require(path.join(__dirname, '../../index.js'));
+                btfBot.initBTFBot(client);
+                console.log(`✅ BTF bot hooked for userId: ${userId}`);
+            }
+        } catch (e) {
+            console.log(`ℹ️ BTF hook failed: ${e.message}`);
+        }
     });
 
     client.on('auth_failure', async () => {
@@ -123,7 +142,20 @@ async function createSession(userId) {
     client.on('message', async (message) => {
         if (message.from === 'status@broadcast') return;
         if (message.from.endsWith('@g.us')) return;
+        if (message.from.endsWith('@newsletter')) return;
         console.log(`📨 Message received for ${userId} from ${message.from}: ${message.body}`);
+
+        // BTF: route to index.js handleMessage directly
+        if (btfUserId && userId === btfUserId && btfBot) {
+            try {
+                const msgTime = message.timestamp * 1000;
+                await btfBot.handleMessage(message.from, message.body.trim(), message);
+            } catch (err) {
+                console.error(`BTF exec error:`, err.message);
+            }
+            return;
+        }
+
         try {
             // Get user's active flow — fetch all user flows, find active one in JS
             const flowSnap = await db.collection('wbp_flows')

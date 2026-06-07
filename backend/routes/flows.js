@@ -59,11 +59,12 @@ router.put('/:id', async (req, res) => {
         if (!doc.exists) return res.status(404).json({ error: 'Flow not found' });
         if (doc.data().userId !== req.user.uid && req.user.role !== 'admin')
             return res.status(403).json({ error: 'Access denied' });
-        const { name, nodes, edges } = req.body;
+        const { name, nodes, edges, sheetUrl } = req.body;
         const updates = { updatedAt: new Date().toISOString() };
         if (name !== undefined) updates.name = name;
         if (nodes !== undefined) updates.nodes = nodes;
         if (edges !== undefined) updates.edges = edges;
+        if (sheetUrl !== undefined) updates.sheetUrl = sheetUrl;
         await db.collection(C_FLOWS).doc(req.params.id).update(updates);
         res.json({ success: true });
     } catch (err) {

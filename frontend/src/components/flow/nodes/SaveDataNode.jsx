@@ -9,7 +9,7 @@ export default function SaveDataNode({ data }) {
                 <span className={styles.label}>Save Data</span>
             </div>
             <div className={styles.body} style={{ fontSize: 11, color: '#9ca3af' }}>
-                Saves collected data to Firebase
+                {data.sheetUrl ? '📊 Firebase + Google Sheets' : 'Saves collected data to Firebase'}
             </div>
             <Handle type="target" position={Position.Top} style={{ background: '#38bdf8' }} />
             <Handle type="source" position={Position.Bottom} style={{ background: '#38bdf8' }} />

@@ -44,6 +44,7 @@ export default function FlowBuilder() {
     const [selectedNode, setSelectedNode] = useState(null);
     const [saving, setSaving] = useState(false);
     const [saved, setSaved] = useState(false);
+    const [sheetUrl, setSheetUrl] = useState('');
     const reactFlowWrapper = useRef(null);
     const [reactFlowInstance, setReactFlowInstance] = useState(null);
 
@@ -52,6 +53,7 @@ export default function FlowBuilder() {
             setFlow(r.data);
             setNodes(r.data.nodes || []);
             setEdges(r.data.edges || []);
+            setSheetUrl(r.data.sheetUrl || '');
         }).catch(() => navigate('/dashboard'));
     }, [id]);
 
@@ -103,10 +105,10 @@ export default function FlowBuilder() {
     async function save() {
         setSaving(true);
         try {
-            await api.put(`/flows/${id}`, { name: flow.name, nodes, edges });
+            await api.put(`/flows/${id}`, { name: flow.name, nodes, edges, sheetUrl });
             setSaved(true);
             setTimeout(() => setSaved(false), 2000);
-        } catch {}
+        } catch { }
         setSaving(false);
     }
 
@@ -125,6 +127,16 @@ export default function FlowBuilder() {
                 <div className={styles.flowName}>
                     <span>{flow.name}</span>
                     {flow.active && <span className={styles.activeBadge}>● Active</span>}
+                </div>
+                <div className={styles.sheetInput}>
+                    <span style={{ fontSize: 12, color: '#9ca3af', marginRight: 6 }}>📊</span>
+                    <input
+                        type="text"
+                        value={sheetUrl}
+                        onChange={e => setSheetUrl(e.target.value)}
+                        placeholder="Google Sheet URL (optional — saves leads here)"
+                        style={{ background: '#1a1d2e', border: '1px solid #2d3148', borderRadius: 6, color: '#e5e7eb', fontSize: 12, padding: '5px 10px', width: 320, outline: 'none' }}
+                    />
                 </div>
                 <div className={styles.topActions}>
                     {!flow.active && (

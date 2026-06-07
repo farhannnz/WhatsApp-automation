@@ -1,994 +1,574 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
-const qrcode = require('qrcode-terminal');
 const express = require('express');
 const fs = require('fs');
 const { google } = require('googleapis');
 
-// Google Sheets config
+// qrcode-terminal only needed in standalone mode
+let qrcode = null;
+try { qrcode = require('qrcode-terminal'); } catch { }
+
 const SHEET_ID = '1PRSwurGgeagmxQFcBLzlXT7yCmRoKkaZXlKln9_ttY0';
 const SHEET_TAB = 'Bot Leads';
+const AMIT = '917719560422@c.us';
+const PORT = process.env.PORT || 3000;
+
+const BRANCHES = {
+    '1': { name: 'BTF Chandigarh', address: 'SCO 1076-1077, Sector 22B, Chandigarh', phone: '+91 77195-60422' },
+    '2': { name: 'BTF New Chandigarh', address: 'SCO 9 & 10, Clockton Street Market, PR-4 Road, Omaxe, New Chandigarh', phone: '+91 77195-60422' }
+};
+const GOALS = { '1': 'Fat Loss', '2': 'Fitness & Endurance', '3': 'Learn Boxing', '4': 'Strength & Conditioning', '5': 'Hyrox Training' };
+const LEVELS = { '1': 'Beginner', '2': 'Intermediate', '3': 'Advanced' };
+const SERVICES = { '1': 'Boxing + Fitness', '2': 'Strength + Fitness', '3': 'Trial Session', '4': 'Membership Details', '5': 'Speak to Team' };
+const GENDERS = { '1': 'Male', '2': 'Female', '3': 'Other', 'm': 'Male', 'f': 'Female', 'o': 'Other', 'male': 'Male', 'female': 'Female', 'other': 'Other' };
+const PRICE_KEYWORDS = ['price', 'prices', 'pricing', 'cost', 'costs', 'fee', 'fees', 'charge', 'charges', 'payment', 'pay', 'money', 'discount', 'offer', 'cheap', 'expensive', 'rate', 'rates', 'how much', 'kitna', 'kitne', 'paisa', 'paise', 'rupee', 'rupees'];
 
 const auth = new google.auth.GoogleAuth({
-    keyFile: './fake-1582b-firebase-adminsdk-fbsvc-daa323e3c1.json',
+    keyFile: './backend/fake-1582b-firebase-adminsdk-fbsvc-878526e19e.json',
     scopes: ['https://www.googleapis.com/auth/spreadsheets']
 });
 
 async function saveLeadToSheet(lead) {
     try {
         const sheets = google.sheets({ version: 'v4', auth });
-        const phone = lead.phone || extractPhone(lead.userId) || '';
+        const phone = lead.phone || '';
         const row = [
-            new Date().toLocaleString('en-IN'),
+            new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
             lead.name || '',
             phone,
             lead.branch || '',
-            lead.age || '',
-            lead.gender || '',
+            lead.service || '',
             lead.goal || '',
             lead.fitnessLevel || '',
-            lead.preferredTiming || '',
-            lead.bookedSlot || '',
-            lead.bookingStatus || '',
+            lead.gender || '',
+            lead.timing || '',
             lead.handoverRequested ? 'Yes' : 'No',
-            lead.handoverReason || ''
+            lead.handoverReason || '',
+            lead.lastStage || '',
+            lead.userId || ''
         ];
 
-        // Check if this phone already exists in sheet — update that row, else append
-        const existing = await sheets.spreadsheets.values.get({
-            spreadsheetId: SHEET_ID,
-            range: `${SHEET_TAB}!A:C`
-        });
-
+        const existing = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${SHEET_TAB}!A:M` });
         const rows = existing.data.values || [];
-        let existingRowIndex = -1;
-        for (let i = 1; i < rows.length; i++) { // skip header row
-            if (rows[i][2] === phone) { existingRowIndex = i + 1; break; } // +1 for 1-based index
+        let rowIndex = -1;
+        for (let i = 1; i < rows.length; i++) {
+            if (rows[i][12] === lead.userId) { rowIndex = i + 1; break; }
         }
 
-        if (existingRowIndex > 0) {
-            await sheets.spreadsheets.values.update({
-                spreadsheetId: SHEET_ID,
-                range: `${SHEET_TAB}!A${existingRowIndex}`,
-                valueInputOption: 'USER_ENTERED',
-                requestBody: { values: [row] }
-            });
+        if (rowIndex > 0) {
+            await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${SHEET_TAB}!A${rowIndex}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [row] } });
         } else {
-            await sheets.spreadsheets.values.append({
-                spreadsheetId: SHEET_ID,
-                range: `${SHEET_TAB}!A1`,
-                valueInputOption: 'USER_ENTERED',
-                requestBody: { values: [row] }
-            });
+            await sheets.spreadsheets.values.append({ spreadsheetId: SHEET_ID, range: `${SHEET_TAB}!A1`, valueInputOption: 'USER_ENTERED', requestBody: { values: [row] } });
         }
-
-        console.log(`✅ Lead saved to sheet: ${lead.name || phone}`);
+        console.log('✅ Sheet saved: ' + (lead.name || phone));
     } catch (err) {
         console.error('❌ Sheet save failed:', err.message);
     }
 }
 
-// Branch addresses
-const BRANCHES = {
-    '1': {
-        name: 'BTF Chandigarh',
-        address: 'SCO 1076-1077, Sector 22B, Sector 22, Chandigarh, 160022',
-        phone: '+91 77195-60422'
-    },
-    '2': {
-        name: 'BTF New Chandigarh',
-        address: 'SCO 9 & 10, Clockton Street Market, PR-4 Road, Omaxe, New Chandigarh, Punjab',
-        phone: '+91 77195-60422'
-    }
-};
-
-const PORT = process.env.PORT || 3000;
 const leadsDB = new Map();
 const conversationState = new Map();
-const followUpTimers = new Map();
+const pausedChats = new Set();
+let botStartTime = null;
 
-// Initialize WhatsApp client
 const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
         headless: true,
-        protocolTimeout: 120000,
+        executablePath: '/usr/bin/chromium-browser',
+        protocolTimeout: 300000,
+        timeout: 120000,
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
             '--disable-gpu',
-            '--no-first-run'
+            '--no-first-run',
+            '--no-zygote',
+            '--single-process',
+            '--disable-extensions',
+            '--disable-background-networking',
+            '--disable-default-apps',
+            '--disable-sync',
+            '--disable-translate',
+            '--hide-scrollbars',
+            '--metrics-recording-only',
+            '--mute-audio',
+            '--safebrowsing-disable-auto-update'
         ]
     }
 });
 
-client.on('qr', qr => {
-    console.log('Scan this QR code to login:');
-    qrcode.generate(qr, { small: true });
-});
-
-let botStartTime = null;
+client.on('qr', qr => { console.log('Scan QR:'); if (qrcode) qrcode.generate(qr, { small: true }); });
 
 client.on('ready', () => {
     botStartTime = Date.now();
-    console.log('✅ BTF WhatsApp Bot is ready!');
+    console.log('✅ BTF Bot ready!');
     loadLeadsFromFile();
     startReminderChecker();
 });
 
 client.on('message', async message => {
     if (message.from === 'status@broadcast') return;
-
-    // Ignore group messages
     if (message.from.endsWith('@g.us')) return;
-
-    // Ignore messages that came before bot started
-    const msgTime = message.timestamp * 1000; // WhatsApp gives seconds, convert to ms
+    if (message.from.endsWith('@newsletter')) return;
+    const msgTime = message.timestamp * 1000;
     if (botStartTime && msgTime < botStartTime) return;
 
     const userId = message.from;
     const msg = message.body.trim();
 
+    if (msg === '..') {
+        if (pausedChats.has(userId)) { pausedChats.delete(userId); console.log('▶️ Resumed: ' + userId); }
+        else { pausedChats.add(userId); console.log('⏸️ Paused: ' + userId); }
+        return;
+    }
+    if (pausedChats.has(userId)) return;
+
     await handleMessage(userId, msg, message);
 });
 
-// Main message handler
 async function handleMessage(userId, msg, message) {
     const state = conversationState.get(userId) || { stage: 'initial' };
     const lead = leadsDB.get(userId) || {};
     const lower = msg.toLowerCase().trim();
 
-    // Track last message time on every interaction
-    updateLeadTracking(userId, state.stage);
+    lead.lastMsgAt = Date.now();
+    lead.lastStage = state.stage;
+    lead.userId = lead.userId || userId;
+    lead.phone = lead.phone || extractPhone(userId);
+    leadsDB.set(userId, lead);
 
-    // Only start a NEW conversation if user sends a greeting
-    // If they're already in a flow, continue regardless
-    const isNewUser = state.stage === 'initial';
-    if (isNewUser) {
-        // Any message from new user triggers the bot
-        // (greeting check removed)
-    }
-
-    // Handle YES to resume a dropped conversation
-    if (lower === 'yes' && lead.reminderSent && state.stage === 'initial') {
-        const resumeStage = lead.lastStage;
-        if (resumeStage && resumeStage !== 'initial' && resumeStage !== 'completed') {
-            conversationState.set(userId, { stage: resumeStage, branchKey: lead.branchKey, interest: lead.interest });
-            await message.reply(`Welcome back! 🙌 Let's pick up where we left off...`);
-            // Re-prompt the stage they were on
-            await repromptStage(userId, resumeStage, message);
-            return;
-        }
-    }
-
-    // Global commands — work from any stage
-    if (lower === 'reset' || lower === 'restart' || lower === 'menu') {
+    if (['reset', 'restart', 'menu', 'start', 'hi', 'hello', 'hey', 'hii', 'helo', 'helo'].includes(lower)) {
         conversationState.delete(userId);
-        await handleInitialContact(userId, msg, message);
+        return askBranch(userId, message);
+    }
+
+    if (PRICE_KEYWORDS.some(k => lower.includes(k))) {
+        await message.reply('Our programs are customized based on your goals, experience level, and coaching requirements.\n\nAt BTF, we focus on results, structure, and real progression rather than just selling memberships. 💪\n\nOur team will share all details when they reach out to you!');
         return;
     }
-    if (lower === 'help' || lower === 'start') {
-        conversationState.set(userId, { stage: 'initial' });
-        await handleInitialContact(userId, msg, message);
-        return;
-    }
-    if (lower === 'address' || lower === 'location' || lower === 'where') {
-        const branch = lead.branchKey ? BRANCHES[lead.branchKey] : null;
-        if (branch) {
-            await message.reply(`📍 *${branch.name}*\n\n${branch.address}\n\n⏰ Mon-Sat: 6 AM - 9 PM\n📞 ${branch.phone}`);
-        } else {
-            await message.reply(`📍 *BTF Locations*\n\n*1️⃣ BTF Chandigarh*\nSCO 1076-1077, Sector 22B, Sector 22, Chandigarh, 160022\n📞 +91 77195-60422\n\n*2️⃣ BTF New Chandigarh*\nSCO 9 & 10, Clockton Street Market\nPR-4 Road, Omaxe, New Chandigarh, Punjab\n📞 +91 77195-60422\n\n⏰ Both branches: Mon-Sat, 6 AM - 9 PM`);
+
+    if (lower === 'yes' && lead.reminderSent && state.stage === 'initial') {
+        const resume = lead.lastStage;
+        if (resume && !['initial', 'completed'].includes(resume)) {
+            conversationState.set(userId, { stage: resume, branchKey: lead.branchKey });
+            await message.reply('Welcome back! 🙌 Let\'s continue...');
+            return repromptStage(userId, resume, message);
         }
-        return;
-    }
-    if (lower === 'team' || lower === 'staff' || lower === 'human') {
-        await triggerHumanHandover(userId, 'User requested staff', message);
-        return;
     }
 
-    // Check for human handover triggers
-    if (shouldHandoverToHuman(msg, lead)) {
-        await triggerHumanHandover(userId, msg, message);
-        return;
-    }
-
-    // Route based on conversation stage
     switch (state.stage) {
-        case 'initial':
-            await handleInitialContact(userId, msg, message);
-            break;
-        case 'selecting_branch':
-            await handleBranchSelection(userId, msg, message);
-            break;
-        case 'awaiting_choice':
-            await handleServiceChoice(userId, msg, message);
-            break;
-        case 'awaiting_yes':
-            await handleAwaitingYes(userId, msg, message);
-            break;
-        case 'collecting_name':
-            await collectName(userId, msg, message);
-            break;
-        case 'collecting_phone':
-            await collectPhone(userId, msg, message);
-            break;
-        case 'collecting_age':
-            await collectAge(userId, msg, message);
-            break;
-        case 'collecting_gender':
-            await collectGender(userId, msg, message);
-            break;
-        case 'collecting_goals':
-            await collectGoals(userId, msg, message);
-            break;
-        case 'collecting_fitness_level':
-            await collectFitnessLevel(userId, msg, message);
-            break;
-        case 'collecting_timing':
-            await collectTiming(userId, msg, message);
-            break;
-        case 'offering_trial':
-            await handleTrialOffer(userId, msg, message);
-            break;
-        case 'booking_slot':
-            await handleSlotBooking(userId, msg, message);
-            break;
-        default:
-            await handleInitialContact(userId, msg, message);
+        case 'initial': return askBranch(userId, message);
+        case 'selecting_branch': return handleBranch(userId, msg, message);
+        case 'selecting_service': return handleService(userId, msg, message);
+        case 'collecting_goal': return handleGoal(userId, msg, message);
+        case 'collecting_level': return handleLevel(userId, msg, message);
+        case 'collecting_gender': return handleGender(userId, msg, message);
+        case 'collecting_phone': return handlePhone(userId, msg, message);
+        case 'collecting_timing': return handleTiming(userId, msg, message);
+        case 'collecting_contact': return handleTiming(userId, msg, message);
+        default: return askBranch(userId, message);
     }
 }
 
-// Initial contact — ask branch first
-async function handleInitialContact(userId, _msg, message) {
-    await message.reply(`🥊 *Welcome to BTF - Box To Fit!*
+async function askBranch(userId, message) {
+    await message.reply(`👋 *Welcome to BTF – Box To Fit* 🔥
 
-Founded by Amit, a New Zealand-based athlete and professional boxer, BTF is where science meets strength.
+Please select your nearest branch:
 
-*Please select your nearest BTF location:*
+1️⃣ *BTF Chandigarh*
+📍 SCO 1076-1077, Sector 22B, Chandigarh - 160022
 
-1️⃣ BTF Chandigarh
-2️⃣ BTF New Chandigarh (Omaxe)
+2️⃣ *BTF New Chandigarh (Omaxe)*
+📍 SCO 9 & 10, Clockton Street Market, PR-4 Road, Omaxe, New Chandigarh - 140901
 
 Reply with 1 or 2 👇`);
-
-    conversationState.set(userId, { stage: 'selecting_branch', timestamp: Date.now() });
-    scheduleFollowUp(userId, '1hour');
+    conversationState.set(userId, { stage: 'selecting_branch' });
 }
 
-// Handle branch selection
-async function handleBranchSelection(userId, msg, message) {
-    const choice = msg.trim();
-
-    if (!['1', '2'].includes(choice)) {
-        await message.reply(`Please reply with *1* for Chandigarh or *2* for New Chandigarh.`);
-        return;
-    }
-
-    const branch = BRANCHES[choice];
+async function handleBranch(userId, msg, message) {
     const lead = leadsDB.get(userId) || {};
-    lead.branch = branch.name;
-    lead.branchKey = choice;
-    lead.userId = userId;
-    lead.phone = extractPhone(userId);
+    if (!['1', '2'].includes(msg.trim())) {
+        return message.reply('Please reply with *1* for Chandigarh or *2* for New Chandigarh.');
+    }
+    lead.branch = BRANCHES[msg.trim()].name;
+    lead.branchKey = msg.trim();
     leadsDB.set(userId, lead);
     saveLeadToSheet(lead);
 
-    await message.reply(`✅ *${branch.name}* selected!
-
-*What brings you here today?*
-
-1️⃣ Weight Loss & Fat Burning
-2️⃣ Boxing Training (Fitness/Competitive)
-3️⃣ Strength & CrossFit
-4️⃣ Book a FREE Trial Class
-5️⃣ Membership Prices
-6️⃣ Talk to Our Team
-
-Reply with a number (1-6) 👇`);
-
-    conversationState.set(userId, { stage: 'awaiting_choice', branchKey: choice, timestamp: Date.now() });
+    await message.reply('✅ *' + lead.branch + '* selected!\n\n👋 *Welcome to BTF – Box To Fit* 🔥\n\nPlease choose an option:\n\n1️⃣ Boxing + Fitness\n2️⃣ Strength + Fitness\n3️⃣ Book a Trial Session\n4️⃣ Membership Details\n5️⃣ Speak to Team\n\nReply with a number 👇');
+    conversationState.set(userId, { stage: 'selecting_service', branchKey: msg.trim() });
 }
 
-// Handle service choice
-async function handleServiceChoice(userId, msg, message) {
-    const choice = msg.trim();
-
-    switch (choice) {
-        case '1':
-            await message.reply(`🔥 *Weight Loss & Fat Burning*
-
-Our science-based approach combines:
-✅ Boxing (burns 800+ calories/session)
-✅ HIIT training
-✅ Strength conditioning
-✅ Personalized nutrition guidance
-
-*"Sweat is your fat crying"* 💪
-
-Ready to start? Let's book your FREE assessment!
-
-Type *YES* to continue or *MENU* to go back.`);
-            conversationState.set(userId, { ...conversationState.get(userId), stage: 'awaiting_yes', interest: 'weight_loss' });
-            break;
-
-        case '2':
-            await message.reply(`🥊 *Boxing Training*
-
-Choose your path:
-A) Fitness Boxing (weight loss, cardio, technique)
-B) Competitive Boxing (athlete training, sparring)
-
-*"Life is like a boxing match. Defeat is declared not when you fall but when you refuse to stand again."*
-
-Type *YES* to continue or *MENU* to go back.`);
-            conversationState.set(userId, { ...conversationState.get(userId), stage: 'awaiting_yes', interest: 'boxing' });
-            break;
-
-        case '3':
-            await message.reply(`💪 *Strength & CrossFit*
-
-Build real functional strength with:
-✅ Olympic lifts
-✅ CrossFit WODs
-✅ Powerlifting fundamentals
-✅ Athletic conditioning
-
-Perfect for all levels!
-
-Type *YES* to book your trial or *MENU* to go back.`);
-            conversationState.set(userId, { ...conversationState.get(userId), stage: 'awaiting_yes', interest: 'strength' });
-            break;
-
-        case '4':
-        case 'trial':
-            await message.reply(`🎯 *FREE Trial Class*
-
-Experience BTF firsthand! Your trial includes:
-✅ Fitness assessment
-✅ Full class experience
-✅ Technique coaching
-✅ Personalized recommendations
-
-🔥 *Excited to start your fitness journey with BTF!*
-
-What's your name? 👇`);
-            conversationState.set(userId, { ...conversationState.get(userId), stage: 'collecting_name', interest: 'trial' });
-            break;
-
-        case '5':
-            await message.reply(`💳 *BTF Membership Plans*
-
-We offer flexible options to fit your lifestyle.
-
-For detailed pricing and custom plans, our team will reach out to you personally.
-
-But first — let's get you started with a *FREE Trial Class* so you can experience BTF yourself! 🥊
-
-Type *YES* to book your free trial 👇`);
-            conversationState.set(userId, { ...conversationState.get(userId), stage: 'awaiting_yes', interest: 'membership' });
-            break;
-
-        case '6':
-        case 'connect':
-            await triggerHumanHandover(userId, 'User requested to talk to team', message);
-            break;
-
-        default:
-            await message.reply(`I didn't catch that. Please reply with a number 1-6, or type *MENU* for options.`);
-    }
-}
-
-// Handle YES confirmation before collecting name
-async function handleAwaitingYes(userId, msg, message) {
-    const lower = msg.toLowerCase();
-    if (lower === 'yes' || lower === 'y' || lower === 'haan' || lower === 'ha') {
-        await message.reply(`🔥 *Excited to start your fitness journey with BTF!*
-
-What's your name? 👇`);
-        conversationState.set(userId, { ...conversationState.get(userId), stage: 'collecting_name' });
-    } else if (lower === 'menu') {
-        await handleInitialContact(userId, msg, message);
-    } else {
-        await message.reply(`Type *YES* to continue or *MENU* to go back to options.`);
-    }
-}
-
-// Collect name
-async function collectName(userId, msg, message) {
-    if (msg.toLowerCase() === 'menu') {
-        await handleInitialContact(userId, msg, message);
-        return;
-    }
-
+async function handleService(userId, msg, message) {
     const lead = leadsDB.get(userId) || {};
-    lead.name = msg;
-    lead.userId = userId;
-    lead.timestamp = Date.now();
+    const choice = msg.trim();
+    if (choice === '5') return triggerHandover(userId, 'User requested to speak to team', message);
+    if (!SERVICES[choice]) return message.reply('Please reply with a number 1–5.');
+
+    lead.service = SERVICES[choice];
     leadsDB.set(userId, lead);
+    saveLeadToSheet(lead);
 
-    await message.reply(`Awesome, ${msg}! 💪
-
-Please share your *phone number* so we can reach you 📞`);
-
-    conversationState.set(userId, { ...conversationState.get(userId), stage: 'collecting_phone' });
+    if (choice === '4') {
+        await message.reply('Our programs are customized based on your goals, experience level, and coaching requirements.\n\nAt BTF, we focus on results, structure, and real progression rather than just selling memberships. 💪\n\nShare your details and our team will reach out with the best plan!\n\nWhat is your main goal?\n\n1️⃣ Fat Loss\n2️⃣ Fitness & Endurance\n3️⃣ Learn Boxing\n4️⃣ Strength & Conditioning\n5️⃣ Hyrox Training');
+    } else {
+        await message.reply('What is your main goal?\n\n1️⃣ Fat Loss\n2️⃣ Fitness & Endurance\n3️⃣ Learn Boxing\n4️⃣ Strength & Conditioning\n5️⃣ Hyrox Training');
+    }
+    conversationState.set(userId, { stage: 'collecting_goal', branchKey: lead.branchKey });
 }
 
-// Collect phone
-async function collectPhone(userId, msg, message) {
+async function handleGoal(userId, msg, message) {
+    const lead = leadsDB.get(userId) || {};
+    const goal = GOALS[msg.trim()];
+    if (!goal) return message.reply('Please reply with a number 1–5.');
+    lead.goal = goal;
+    leadsDB.set(userId, lead);
+    saveLeadToSheet(lead);
+    await message.reply('What is your current training level?\n\n1️⃣ Beginner\n2️⃣ Intermediate\n3️⃣ Advanced');
+    conversationState.set(userId, { stage: 'collecting_level', branchKey: lead.branchKey });
+}
+
+async function handleLevel(userId, msg, message) {
+    const lead = leadsDB.get(userId) || {};
+    const level = LEVELS[msg.trim()];
+    if (!level) return message.reply('Please reply with 1, 2, or 3.');
+    lead.fitnessLevel = level;
+    leadsDB.set(userId, lead);
+    saveLeadToSheet(lead);
+    await message.reply('What is your gender?\n\n1️⃣ Male\n2️⃣ Female\n3️⃣ Other');
+    conversationState.set(userId, { stage: 'collecting_gender', branchKey: lead.branchKey });
+}
+
+async function handleGender(userId, msg, message) {
+    const lead = leadsDB.get(userId) || {};
+    const gender = GENDERS[msg.trim().toLowerCase()];
+    if (!gender) return message.reply('Please reply with 1 (Male), 2 (Female), or 3 (Other).');
+    lead.gender = gender;
+    leadsDB.set(userId, lead);
+    saveLeadToSheet(lead);
+    await message.reply('Perfect 👊\n\nPlease share your *phone number* so our team can reach you 📞');
+    conversationState.set(userId, { stage: 'collecting_phone', branchKey: lead.branchKey });
+}
+
+async function handlePhone(userId, msg, message) {
+    const lead = leadsDB.get(userId) || {};
     const digits = msg.replace(/\D/g, '');
     let phone = '';
+    if (digits.length === 10) phone = '+91' + digits;
+    else if (digits.length === 12 && digits.startsWith('91')) phone = '+' + digits;
+    else return message.reply('Please enter a valid 10-digit mobile number 👇');
 
-    if (digits.length === 10) {
-        phone = '+91' + digits;
-    } else if (digits.length === 12 && digits.startsWith('91')) {
-        phone = '+' + digits;
-    } else {
-        await message.reply(`Please enter a valid 10-digit mobile number 👇`);
-        return;
-    }
-
-    const lead = leadsDB.get(userId) || {};
     lead.phone = phone;
     leadsDB.set(userId, lead);
     saveLeadToSheet(lead);
 
-    await message.reply(`Got it! How old are you?`);
+    // Schedule 5-min fallback alert to Amit if user doesn't reply
+    const timer = setTimeout(async () => {
+        const currentLead = leadsDB.get(userId) || {};
+        if (!currentLead.convoComplete) {
+            currentLead.convoComplete = true;
+            leadsDB.set(userId, currentLead);
+            saveLeadsToFile();
+            saveLeadToSheet(currentLead);
+            notifyAmit(currentLead);
+            console.log('⏰ 5-min fallback alert sent for: ' + userId);
+        }
+    }, 5 * 60 * 1000);
+    // Store timer so we can cancel if they do reply
+    if (!global.phoneTimers) global.phoneTimers = new Map();
+    global.phoneTimers.set(userId, timer);
 
-    conversationState.set(userId, { ...conversationState.get(userId), stage: 'collecting_age' });
+    const slots = generateSlots();
+    await message.reply('🗓️ *Available Trial Slots*\n\n⚠️ _Trials available till 5 PM only — gym gets busy after that!_\n\n' + slots + '\nYou can also type your preferred date & time freely.\nExample: _Tomorrow 9 AM_ or _19 May, 4 PM_');
+    conversationState.set(userId, { stage: 'collecting_timing', branchKey: lead.branchKey });
 }
 
-// Collect age
-async function collectAge(userId, msg, message) {
-    const age = parseInt(msg);
+function generateSlots() {
+    // IST time
+    const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    const currentHour = now.getHours() + now.getMinutes() / 60;
 
-    if (isNaN(age) || age < 10 || age > 100) {
-        await message.reply(`Please enter a valid age (10-100).`);
-        return;
-    }
-
-    const lead = leadsDB.get(userId);
-    lead.age = age;
-    leadsDB.set(userId, lead);
-    saveLeadToSheet(lead);
-
-    await message.reply(`Got it! What's your gender?
-
-M - Male
-F - Female
-O - Other`);
-
-    conversationState.set(userId, { ...conversationState.get(userId), stage: 'collecting_gender' });
-}
-
-// Collect gender
-async function collectGender(userId, msg, message) {
-    const gender = msg.toUpperCase();
-
-    if (!['M', 'F', 'O', 'MALE', 'FEMALE', 'OTHER'].includes(gender)) {
-        await message.reply(`Please reply with M, F, or O.`);
-        return;
-    }
-
-    const lead = leadsDB.get(userId);
-    lead.gender = gender;
-    leadsDB.set(userId, lead);
-    saveLeadToSheet(lead);
-
-    await message.reply(`Perfect! What's your main fitness goal?
-
-1️⃣ Lose weight / Fat loss
-2️⃣ Build muscle / Strength
-3️⃣ Learn boxing technique
-4️⃣ Improve fitness / Stamina
-5️⃣ Competitive boxing training
-6️⃣ General health & wellness`);
-
-    conversationState.set(userId, { ...conversationState.get(userId), stage: 'collecting_goals' });
-}
-
-// Collect goals
-async function collectGoals(userId, msg, message) {
-    const goalMap = {
-        '1': 'Weight Loss',
-        '2': 'Build Muscle',
-        '3': 'Boxing Technique',
-        '4': 'Fitness/Stamina',
-        '5': 'Competitive Boxing',
-        '6': 'General Wellness'
-    };
-
-    const goal = goalMap[msg.trim()] || msg;
-
-    const lead = leadsDB.get(userId);
-    lead.goal = goal;
-    leadsDB.set(userId, lead);
-    saveLeadToSheet(lead);
-
-    await message.reply(`Awesome! What's your current fitness level?
-
-1️⃣ Beginner (just starting out)
-2️⃣ Intermediate (some experience)
-3️⃣ Advanced (regular training)`);
-
-    conversationState.set(userId, { ...conversationState.get(userId), stage: 'collecting_fitness_level' });
-}
-
-// Collect fitness level
-async function collectFitnessLevel(userId, msg, message) {
-    const levelMap = {
-        '1': 'Beginner',
-        '2': 'Intermediate',
-        '3': 'Advanced'
-    };
-
-    const level = levelMap[msg.trim()] || msg;
-
-    const lead = leadsDB.get(userId);
-    lead.fitnessLevel = level;
-    leadsDB.set(userId, lead);
-    saveLeadToSheet(lead);
-
-    await message.reply(`Great! When do you prefer to train?
-
-1️⃣ Early Morning (6-9 AM)
-2️⃣ Mid Morning (9-12 PM)
-3️⃣ Afternoon (12-5 PM)
-4️⃣ Evening (5-9 PM)
-5️⃣ Flexible`);
-
-    conversationState.set(userId, { ...conversationState.get(userId), stage: 'collecting_timing' });
-}
-
-// Collect timing preference
-async function collectTiming(userId, msg, message) {
-    const timingMap = {
-        '1': 'Early Morning (6-9 AM)',
-        '2': 'Mid Morning (9-12 PM)',
-        '3': 'Afternoon (12-5 PM)',
-        '4': 'Evening (5-9 PM)',
-        '5': 'Flexible'
-    };
-
-    const timing = timingMap[msg.trim()] || msg;
-
-    const lead = leadsDB.get(userId);
-    lead.preferredTiming = timing;
-    lead.qualified = true;
-    leadsDB.set(userId, lead);
-    saveLeadsToFile();
-    saveLeadToSheet(lead);
-
-    await message.reply(`Perfect, ${lead.name}! 🎯
-
-Based on your profile:
-👤 ${lead.age} years, ${lead.gender}
-🎯 Goal: ${lead.goal}
-💪 Level: ${lead.fitnessLevel}
-⏰ Timing: ${timing}
-
-*Let's get you started with a FREE trial session!*
-
-Would you like to book your trial class?
-
-Type *YES* to see available slots
-Type *INFO* for more details about BTF`);
-
-    conversationState.set(userId, { ...conversationState.get(userId), stage: 'offering_trial' });
-}
-
-// Generate available trial slots (only before 5 PM, trials not after 5 PM)
-function generateAvailableSlots() {
-    const now = new Date();
-    const currentHour = now.getHours();
-
-    const allSlots = ['7:00 AM', '9:00 AM', '11:00 AM', '1:00 PM', '3:00 PM'];
-    const slotHours = [7, 9, 11, 13, 15]; // 24-hour format
-
-    let slotsText = '';
-
-    // TODAY — only show slots that are still available (current time + 1 hour buffer, and before 5 PM)
-    const todaySlots = allSlots.filter((slot, idx) => {
-        const slotHour = slotHours[idx];
-        return slotHour > currentHour && slotHour < 17; // before 5 PM
-    });
-
-    if (todaySlots.length > 0) {
-        slotsText += `*Today (${now.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })}):*\n`;
-        todaySlots.forEach(slot => slotsText += `• ${slot}\n`);
-        slotsText += '\n';
-    }
-
-    // TOMORROW
-    const tomorrow = new Date(now);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    slotsText += `*Tomorrow (${tomorrow.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })}):*\n`;
-    allSlots.forEach(slot => slotsText += `• ${slot}\n`);
-    slotsText += '\n';
-
-    // DAY AFTER TOMORROW
-    const dayAfter = new Date(now);
-    dayAfter.setDate(dayAfter.getDate() + 2);
-    slotsText += `*${dayAfter.toLocaleDateString('en-IN', { weekday: 'long', month: 'short', day: 'numeric' })}:*\n`;
-    allSlots.forEach(slot => slotsText += `• ${slot}\n`);
-
-    return slotsText;
-}
-
-// Handle trial offer
-async function handleTrialOffer(userId, msg, message) {
-    const response = msg.toLowerCase();
-    const lead = leadsDB.get(userId) || {};
-    const branch = BRANCHES[lead.branchKey] || BRANCHES['2'];
-
-    if (response.includes('yes') || response.includes('book')) {
-        const slots = generateAvailableSlots();
-        await message.reply(`🗓️ *Available Trial Slots*
-
-⚠️ _Trial sessions are available till 5:00 PM only. Our gym gets quite busy after that!_
-
-${slots}
-Reply with your preferred date & time
-Example: "Tomorrow 9 AM" or "Today 3 PM"`);
-
-        conversationState.set(userId, { ...conversationState.get(userId), stage: 'booking_slot' });
-    } else if (response.includes('info')) {
-        await message.reply(`ℹ️ *About BTF - Box To Fit*
-
-📍 *${branch.name}*
-${branch.address}
-
-⏰ *Timings:* Mon-Sat, 6 AM - 9 PM
-
-🥊 *What We Offer:*
-• Boxing (Fitness & Competitive)
-• Strength Training & CrossFit
-• HIIT & Fat Loss Programs
-• Personal Training
-• Nutrition Guidance
-
-💪 *Why BTF?*
-"Exercise is Medicine to the Body"
-- International standards
-- Expert coaching by Amit (NZ-based athlete)
-- Science-based training
-- Premium equipment
-
-Ready to book? Type *YES* 🔥`);
-    } else {
-        await message.reply(`No worries! Take your time.
-
-Type *YES* when ready to book
-Type *MENU* to explore other options
-Type *TEAM* to speak with our staff`);
-    }
-}
-
-// Handle slot booking
-async function handleSlotBooking(userId, msg, message) {
-    const lead = leadsDB.get(userId);
-    const branch = BRANCHES[lead.branchKey] || BRANCHES['2'];
-    lead.bookedSlot = msg;
-    lead.bookingStatus = 'confirmed';
-    lead.convoComplete = true;
-    leadsDB.set(userId, lead);
-    saveLeadsToFile();
-    saveLeadToSheet(lead);
-    notifyAmit(lead, 'trial_booked');
-
-    await message.reply(`✅ *Trial Class Confirmed!*
-
-📅 ${msg}
-📍 ${branch.address}
-
-*What to bring:*
-✅ Comfortable workout clothes
-✅ Water bottle
-✅ Towel
-✅ Athletic shoes
-
-*What to expect:*
-• Fitness assessment (10 min)
-• Warm-up & technique intro (15 min)
-• Full class experience (30 min)
-• Cool down & Q&A (5 min)
-
-📞 Questions? Call: ${branch.phone}
-
-*"Push harder than yesterday if you want a different tomorrow."* 💪
-
-See you soon, ${lead.name}! 🥊`);
-
-    conversationState.set(userId, { stage: 'completed' });
-    clearFollowUp(userId);
-}
-
-// Human handover logic
-function shouldHandoverToHuman(msg, lead) {
-    const handoverKeywords = [
-        'price', 'cost', 'payment', 'discount', 'offer',
-        'athlete', 'professional', 'compete', 'competition',
-        'complaint', 'issue', 'problem', 'manager',
-        'bulk', 'corporate', 'group',
-        'vip', 'premium', 'personal training'
+    // Slots: 3-hour chunks, trials not after 5 PM, not 6-8 PM
+    const slots = [
+        { label: '6:00 AM – 9:00 AM', start: 6 },
+        { label: '9:00 AM – 12:00 PM', start: 9 },
+        { label: '12:00 PM – 3:00 PM', start: 12 },
+        { label: '3:00 PM – 5:00 PM', start: 15 }
+        // 6-8 PM excluded, after 5 PM no trials
     ];
 
-    return handoverKeywords.some(keyword => msg.toLowerCase().includes(keyword));
+    const fmt = (d) => d.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' });
+    const fmtShort = (d) => d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' });
+
+    let text = '';
+
+    // Helper: get available slots for a day (pass offset 0=today, 1=tomorrow etc)
+    function getDaySlots(dayOffset) {
+        const d = new Date(now);
+        d.setDate(d.getDate() + dayOffset);
+        const isSunday = d.getDay() === 0;
+        if (isSunday) return null; // gym closed
+
+        const availableSlots = dayOffset === 0
+            ? slots.filter(s => s.start > currentHour) // today: only future slots
+            : slots; // other days: all slots
+
+        return { date: d, slots: availableSlots };
+    }
+
+    // Show today + next 2 open days (skip Sundays)
+    let shown = 0;
+    let offset = 0;
+    while (shown < 3 && offset < 10) {
+        const day = getDaySlots(offset);
+        if (day && day.slots.length > 0) {
+            const label = offset === 0 ? 'Today (' + fmtShort(day.date) + ')' : offset === 1 ? 'Tomorrow (' + fmtShort(day.date) + ')' : fmt(day.date);
+            text += '*' + label + ':*\n';
+            day.slots.forEach(s => { text += '• ' + s.label + '\n'; });
+            text += '\n';
+            shown++;
+        }
+        offset++;
+    }
+
+    return text;
 }
 
-async function triggerHumanHandover(userId, msg, message) {
+// ── Parse user timing text into a Date object (IST) ─────────
+function parseTrialDateTime(text) {
+    try {
+        const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+        const lower = text.toLowerCase().trim();
+
+        // Extract hour from text e.g. "9 AM", "4 PM", "9:00 AM"
+        const timeMatch = lower.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)/);
+        if (!timeMatch) return null;
+
+        let hour = parseInt(timeMatch[1]);
+        const min = timeMatch[2] ? parseInt(timeMatch[2]) : 0;
+        const ampm = timeMatch[3];
+        if (ampm === 'pm' && hour !== 12) hour += 12;
+        if (ampm === 'am' && hour === 12) hour = 0;
+
+        // Determine the date
+        let date = new Date(now);
+        if (lower.includes('tomorrow')) {
+            date.setDate(date.getDate() + 1);
+        } else {
+            // Try to match "19 may", "may 19" etc
+            const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+            for (let i = 0; i < months.length; i++) {
+                if (lower.includes(months[i])) {
+                    const dayMatch = lower.match(/(\d{1,2})\s*(?:st|nd|rd|th)?\s*(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s*(\d{1,2})/);
+                    if (dayMatch) {
+                        const day = parseInt(dayMatch[1] || dayMatch[2]);
+                        date.setMonth(i);
+                        date.setDate(day);
+                        // If date already passed this year, set next year
+                        if (date < now) date.setFullYear(date.getFullYear() + 1);
+                    }
+                    break;
+                }
+            }
+        }
+
+        date.setHours(hour, min, 0, 0);
+        return date;
+    } catch (e) {
+        return null;
+    }
+}
+
+function scheduleTrialReminders(userId, trialDate) {
+    if (!trialDate || isNaN(trialDate.getTime())) return;
+
+    const now = Date.now();
+    const trialTime = trialDate.getTime();
+
+    // Reminder 1: 1 day before
+    const oneDayBefore = trialTime - 24 * 60 * 60 * 1000;
+    // Reminder 2: 2 hours before
+    const twoHoursBefore = trialTime - 2 * 60 * 60 * 1000;
+
+    if (!global.trialTimers) global.trialTimers = new Map();
+
+    const timers = [];
+
+    if (oneDayBefore > now) {
+        const t1 = setTimeout(async () => {
+            const lead = leadsDB.get(userId) || {};
+            try {
+                await client.sendMessage(userId,
+                    '⏰ *Reminder from BTF!*\n\nYour trial session is *tomorrow* at ' + trialDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' }) + ' 🥊\n\n📍 ' + (lead.branch || 'BTF') + '\n\nSee you there! 💪');
+                console.log('📩 Day-before reminder sent to ' + userId);
+            } catch (e) { console.error('Reminder 1 failed:', e.message); }
+        }, oneDayBefore - now);
+        timers.push(t1);
+    }
+
+    if (twoHoursBefore > now) {
+        const t2 = setTimeout(async () => {
+            const lead = leadsDB.get(userId) || {};
+            try {
+                await client.sendMessage(userId,
+                    '🔔 *BTF Reminder!*\n\nYour trial session starts in *2 hours* at ' + trialDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' }) + ' 🥊\n\n📍 ' + (lead.branch || 'BTF') + '\n\nGet ready! 🔥');
+                console.log('📩 2-hour reminder sent to ' + userId);
+            } catch (e) { console.error('Reminder 2 failed:', e.message); }
+        }, twoHoursBefore - now);
+        timers.push(t2);
+    }
+
+    if (timers.length > 0) {
+        global.trialTimers.set(userId, timers);
+        console.log('⏰ Trial reminders scheduled for ' + userId + ' at ' + trialDate.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }));
+    }
+}
+
+async function handleTiming(userId, msg, message) {
+    const lead = leadsDB.get(userId) || {};
+
+    // Cancel 5-min fallback timer
+    if (global.phoneTimers && global.phoneTimers.has(userId)) {
+        clearTimeout(global.phoneTimers.get(userId));
+        global.phoneTimers.delete(userId);
+    }
+
+    // Accept any input as timing
+    lead.timing = msg.trim();
+    lead.convoComplete = true;
+
+    // Parse and schedule trial reminders
+    const trialDate = parseTrialDateTime(msg.trim());
+    if (trialDate) {
+        lead.trialDateTime = trialDate.toISOString();
+        scheduleTrialReminders(userId, trialDate);
+    }
+
+    leadsDB.set(userId, lead);
+    saveLeadsToFile();
+    saveLeadToSheet(lead);
+    notifyAmit(lead);
+
+    await message.reply('✅ *You\'re all set!*\n\nOur team will reach out to you shortly on *' + lead.phone + '* 📞\n\n📍 *' + lead.branch + '*\n\n_"The only bad workout is the one that didn\'t happen."_ 💪\n\nSee you at BTF! 🥊');
+    conversationState.set(userId, { stage: 'completed' });
+}
+
+async function triggerHandover(userId, reason, message) {
     const lead = leadsDB.get(userId) || {};
     lead.handoverRequested = true;
-    lead.handoverReason = msg;
-    lead.handoverTime = new Date().toISOString();
+    lead.handoverReason = reason;
     lead.convoComplete = true;
     leadsDB.set(userId, lead);
     saveLeadsToFile();
     saveLeadToSheet(lead);
 
-    // Log to file
-    const log = `[${new Date().toLocaleString('en-IN')}] ${userId} | Name: ${lead.name || 'Unknown'} | Reason: ${msg}\n`;
+    const log = '[' + new Date().toLocaleString('en-IN') + '] ' + userId + ' | ' + (lead.name || 'Unknown') + ' | ' + reason + '\n';
     fs.appendFileSync('handovers.log', log);
 
-    // Extract client's phone number
-    const clientPhone = lead.phone || extractPhone(userId);
+    const alert = '🚨 *BTF Lead - Team Request*\n\n👤 Name: ' + (lead.name || 'Not provided') + '\n📞 Phone: ' + (lead.phone || extractPhone(userId)) + '\n🏋️ Branch: ' + (lead.branch || '-') + '\n🎯 Goal: ' + (lead.goal || '-') + '\n💪 Level: ' + (lead.fitnessLevel || '-') + '\n❓ Reason: ' + reason + '\n🕐 ' + new Date().toLocaleString('en-IN');
+    try { await client.sendMessage(AMIT, alert); } catch (e) { console.error('Amit alert failed:', e.message); }
 
-    // Build alert message for Amit (77195-60422)
-    const alertMsg = `🚨 *New Lead Alert - BTF*
-
-👤 *Name:* ${lead.name || 'Not provided'}
-📞 *Phone:* ${clientPhone}
-🏋️ *Branch:* ${lead.branch || 'Not selected'}
-🎯 *Goal:* ${lead.goal || 'Not provided'}
-💪 *Level:* ${lead.fitnessLevel || 'Not provided'}
-⏰ *Timing:* ${lead.preferredTiming || 'Not provided'}
-❓ *Reason:* ${msg}
-🕐 *Time:* ${new Date().toLocaleString('en-IN')}`;
-
-    // Send alert to Amit's number
-    const amitNumber = '917719560422@c.us'; // 91 + number without +
-    try {
-        await client.sendMessage(amitNumber, alertMsg);
-        console.log(`✅ Alert sent to Amit for lead: ${clientPhone}`);
-    } catch (err) {
-        console.error(`❌ Failed to send alert to Amit:`, err.message);
-    }
-
-    // Reply to client
-    await message.reply(`🤝 *Our team will reach out to you shortly!*
-
-📞 Or call us directly: +91 77195-60422
-⏰ Mon - Sun: 24 Hours
-
-We're here to help! 💪`);
-
-    console.log(`🚨 HUMAN HANDOVER: ${userId} | ${lead.name || 'Unknown'} | ${msg}`);
+    await message.reply('🤝 Our team will reach out to you shortly!\n\n📞 Or call directly: +91 77195-60422\n⏰ Mon–Sun: 9 AM – 9 PM');
+    conversationState.set(userId, { stage: 'completed' });
 }
 
-// Notify Amit on WhatsApp
-async function notifyAmit(lead, type) {
-    const AMIT = '917719560422@c.us';
-    const phone = lead.phone || extractPhone(lead.userId || lead.userId);
-    const time = new Date().toLocaleString('en-IN');
+async function notifyAmit(lead) {
+    const msg = '✅ *New BTF Lead*\n\n👤 Name: ' + (lead.name || 'Not provided') + '\n📞 Phone: ' + (lead.phone || '-') + '\n🏋️ Branch: ' + (lead.branch || '-') + '\n🎯 Service: ' + (lead.service || '-') + '\n🏆 Goal: ' + (lead.goal || '-') + '\n💪 Level: ' + (lead.fitnessLevel || '-') + '\n👫 Gender: ' + (lead.gender || '-') + '\n⏰ Timing: ' + (lead.timing || '-') + '\n🕐 ' + new Date().toLocaleString('en-IN');
+    try { await client.sendMessage(AMIT, msg); console.log('✅ Amit notified: ' + lead.phone); }
+    catch (e) { console.error('Amit notify failed:', e.message); }
+}
 
-    let msg = '';
-
-    if (type === 'new_lead') {
-        msg = `🎯 *New Lead Generated - BTF*
-
-👤 *Name:* ${lead.name || '—'}
-📞 *Phone:* ${phone}
-🏋️ *Branch:* ${lead.branch || '—'}
-🎯 *Goal:* ${lead.goal || '—'}
-💪 *Level:* ${lead.fitnessLevel || '—'}
-⏰ *Preferred Timing:* ${lead.preferredTiming || '—'}
-👫 *Age/Gender:* ${lead.age || '—'} / ${lead.gender || '—'}
-🕐 *Time:* ${time}`;
-    } else if (type === 'trial_booked') {
-        msg = `✅ *Trial Class Booked - BTF*
-
-👤 *Name:* ${lead.name || '—'}
-📞 *Phone:* ${phone}
-🏋️ *Branch:* ${lead.branch || '—'}
-📅 *Slot:* ${lead.bookedSlot || '—'}
-🎯 *Goal:* ${lead.goal || '—'}
-💪 *Level:* ${lead.fitnessLevel || '—'}
-🕐 *Time:* ${time}`;
-    }
-
-    try {
-        await client.sendMessage(AMIT, msg);
-        console.log(`✅ Amit notified: ${type} | ${phone}`);
-    } catch (err) {
-        console.error(`❌ Failed to notify Amit:`, err.message);
+async function repromptStage(userId, stage, message) {
+    switch (stage) {
+        case 'selecting_branch': return message.reply('Please select branch:\n\n1️⃣ BTF Chandigarh\n2️⃣ BTF New Chandigarh');
+        case 'selecting_service': return message.reply('Please choose:\n\n1️⃣ Boxing + Fitness\n2️⃣ Strength + Fitness\n3️⃣ Book a Trial Session\n4️⃣ Membership Details\n5️⃣ Speak to Team');
+        case 'collecting_goal': return message.reply('What is your main goal?\n\n1️⃣ Fat Loss\n2️⃣ Fitness & Endurance\n3️⃣ Learn Boxing\n4️⃣ Strength & Conditioning\n5️⃣ Hyrox Training');
+        case 'collecting_level': return message.reply('Your training level?\n\n1️⃣ Beginner\n2️⃣ Intermediate\n3️⃣ Advanced');
+        case 'collecting_gender': return message.reply('Your gender?\n\n1️⃣ Male\n2️⃣ Female\n3️⃣ Other');
+        case 'collecting_phone': return message.reply('Please share your phone number 📞');
+        case 'collecting_timing': return message.reply('When do you prefer to train?\n\n1️⃣ Early Morning (6–9 AM)\n2️⃣ Mid Morning (9–12 PM)\n3️⃣ Afternoon (12–5 PM)\n4️⃣ Evening (5–9 PM)\n5️⃣ Flexible');
+        default: return askBranch(userId, message);
     }
 }
+
+const REMINDER_DAYS = {
+    1: 'Hey 👋\n\nJust checking in from BTF.\nYour future fit self is waiting… we just need the current version of you to reply 😄💪\n\nType *YES* to continue where you left off!',
+    3: 'At this point we\'re not sure if:\nA) You got busy\nB) You joined another gym\nC) Or you\'re secretly waiting for Monday 😅\n\nEither way, BTF\'s here whenever you\'re ready to level up 🔥\n\nType *YES* to continue!',
+    7: 'Quick reminder from BTF ✨\n\nGood health, confidence, strength, energy…\nthose things aren\'t expenses — they\'re investments.\n\nYour body will thank you later 💪\n\nType *YES* to pick up where you left off!',
+    30: 'Hey 👋\n\nStill thinking about starting?\nNo pressure — BTF is always here to help you build a stronger, healthier lifestyle 🔥\n\nType *YES* to continue!'
+};
+
+function startReminderChecker() {
+    setInterval(async () => {
+        const now = Date.now();
+        for (const [userId, lead] of leadsDB.entries()) {
+            if (lead.convoComplete || !lead.lastMsgAt || !lead.lastStage) continue;
+            if (['initial', 'completed'].includes(lead.lastStage)) continue;
+            if (lead.lastMsgAt < botStartTime) continue;
+            const daysSince = (now - lead.lastMsgAt) / (1000 * 60 * 60 * 24);
+            const sent = lead.remindersSent || [];
+            let dayKey = null;
+            if (daysSince >= 30 && !sent.includes(30)) dayKey = 30;
+            else if (daysSince >= 7 && !sent.includes(7)) dayKey = 7;
+            else if (daysSince >= 3 && !sent.includes(3)) dayKey = 3;
+            else if (daysSince >= 1 && !sent.includes(1)) dayKey = 1;
+            if (!dayKey) continue;
+            try {
+                await client.sendMessage(userId, REMINDER_DAYS[dayKey]);
+                lead.remindersSent = [...sent, dayKey];
+                lead.reminderSent = true;
+                leadsDB.set(userId, lead);
+                saveLeadsToFile();
+                conversationState.set(userId, { stage: 'initial' });
+                console.log('📩 Reminder day ' + dayKey + ' sent to ' + userId);
+            } catch (e) { console.error('❌ Reminder failed ' + userId + ':', e.message); }
+        }
+    }, 30 * 60 * 1000);
+}
+
 function extractPhone(userId) {
     if (!userId) return 'Unknown';
-    // Standard format: 919876543210@c.us
     if (userId.endsWith('@c.us')) {
         const match = userId.match(/^(\d+)@/);
         return match ? '+' + match[1] : userId;
     }
-    // Linked device format: @lid — no real number, return cleaned ID
-    if (userId.endsWith('@lid')) {
-        return `ID:${userId.replace('@lid', '')}`;
-    }
+    if (userId.endsWith('@lid')) return 'ID:' + userId.replace('@lid', '');
     return userId;
 }
 
-// Follow-up system
-// Follow-up system disabled — bot only responds, never initiates
-function scheduleFollowUp(_userId, _type) { /* disabled */ }
-function clearFollowUp(userId) {
-    const timer = followUpTimers.get(userId);
-    if (timer) { clearTimeout(timer); followUpTimers.delete(userId); }
-}
-function scheduleFollowUps() { /* disabled */ }
-
-// ── Lead tracking ────────────────────────────────────────
-function updateLeadTracking(userId, currentStage) {
-    const lead = leadsDB.get(userId) || {};
-    lead.lastMsgAt = Date.now();
-    lead.lastStage = currentStage;
-    if (!lead.convoComplete) lead.convoComplete = false;
-    leadsDB.set(userId, lead);
-}
-
-// Re-prompt user at the stage they dropped off
-async function repromptStage(userId, stage, message) {
-    switch (stage) {
-        case 'selecting_branch':
-            await message.reply(`Which BTF location were you interested in?\n\n1️⃣ BTF Chandigarh\n2️⃣ BTF New Chandigarh (Omaxe)\n\nReply 1 or 2 👇`);
-            break;
-        case 'awaiting_choice':
-            await message.reply(`What were you looking for?\n\n1️⃣ Weight Loss & Fat Burning\n2️⃣ Boxing Training\n3️⃣ Strength & CrossFit\n4️⃣ Book a FREE Trial Class\n5️⃣ Membership Prices\n6️⃣ Talk to Our Team\n\nReply 1-6 👇`);
-            break;
-        case 'awaiting_yes':
-            await message.reply(`Ready to continue? Type *YES* to proceed 👇`);
-            break;
-        case 'collecting_name':
-            await message.reply(`What's your name? 👇`);
-            break;
-        case 'collecting_phone':
-            await message.reply(`Please share your phone number 📞`);
-            break;
-        case 'collecting_age':
-            await message.reply(`How old are you? 👇`);
-            break;
-        case 'collecting_gender':
-            await message.reply(`What's your gender?\n\nM - Male\nF - Female\nO - Other`);
-            break;
-        case 'collecting_goals':
-            await message.reply(`What's your main fitness goal?\n\n1️⃣ Lose weight\n2️⃣ Build muscle\n3️⃣ Boxing technique\n4️⃣ Fitness/Stamina\n5️⃣ Competitive boxing\n6️⃣ General wellness`);
-            break;
-        case 'collecting_fitness_level':
-            await message.reply(`What's your fitness level?\n\n1️⃣ Beginner\n2️⃣ Intermediate\n3️⃣ Advanced`);
-            break;
-        case 'collecting_timing':
-            await message.reply(`When do you prefer to train?\n\n1️⃣ Early Morning (6-9 AM)\n2️⃣ Mid Morning (9-12 PM)\n3️⃣ Afternoon (12-5 PM)\n4️⃣ Evening (5-9 PM)\n5️⃣ Flexible`);
-            break;
-        case 'offering_trial':
-            await message.reply(`Ready to book your FREE trial? Type *YES* to see available slots 👇`);
-            break;
-        case 'booking_slot':
-            await message.reply(`Which slot works for you? Reply with date & time\nExample: "Tomorrow 9 AM"`);
-            break;
-        default:
-            await handleInitialContact(userId, '', message);
-    }
-}
-
-// ── Reminder checker ──────────────────────────────────────
-const REMINDER_DAYS = {
-    1: `Hey 👋\n\nJust checking in from BTF.\nYour future fit self is waiting… we just need the current version of you to reply 😄💪\n\nType *YES* to continue where you left off!`,
-    3: `At this point we're not sure if:\nA) You got busy\nB) You joined another gym\nC) Or you're secretly waiting for Monday 😅\n\nEither way, BTF's here whenever you're ready to level up 🔥\n\nType *YES* to continue!`,
-    7: `Quick reminder from BTF ✨\n\nGood health, confidence, strength, energy…\nthose things aren't expenses — they're investments.\n\nYour body will thank you later 💪\n\nType *YES* to pick up where you left off!`,
-    30: `Hey 👋\n\nStill thinking about starting?\nNo pressure from us — just a reminder that BTF is always here to help you build a stronger, healthier lifestyle 🔥\n\nAnd who knows… this message might be the sign to finally begin 😉\n\nType *YES* to continue!`
-};
-
-function startReminderChecker() {
-    // Check every 30 minutes
-    setInterval(async () => {
-        const now = Date.now();
-        for (const [userId, lead] of leadsDB.entries()) {
-            // Skip completed convos, handovers, or no lastMsgAt
-            if (lead.convoComplete || !lead.lastMsgAt || !lead.lastStage) continue;
-            if (lead.lastStage === 'initial' || lead.lastStage === 'completed') continue;
-
-            const daysSince = (now - lead.lastMsgAt) / (1000 * 60 * 60 * 24);
-            const remindersSent = lead.remindersSent || [];
-
-            let dayKey = null;
-            if (daysSince >= 30 && !remindersSent.includes(30)) dayKey = 30;
-            else if (daysSince >= 7 && !remindersSent.includes(7)) dayKey = 7;
-            else if (daysSince >= 3 && !remindersSent.includes(3)) dayKey = 3;
-            else if (daysSince >= 1 && !remindersSent.includes(1)) dayKey = 1;
-
-            if (!dayKey) continue;
-
-            try {
-                await client.sendMessage(userId, REMINDER_DAYS[dayKey]);
-                lead.remindersSent = [...remindersSent, dayKey];
-                lead.reminderSent = true;
-                leadsDB.set(userId, lead);
-                saveLeadsToFile();
-                // Reset their convo state so YES can resume
-                conversationState.set(userId, { stage: 'initial' });
-                console.log(`📩 Reminder DAY ${dayKey} sent to ${userId}`);
-            } catch (err) {
-                console.error(`❌ Reminder failed for ${userId}:`, err.message);
-            }
-        }
-    }, 30 * 60 * 1000); // every 30 minutes
-}
-
-// Persistence
 function saveLeadsToFile() {
-    const data = JSON.stringify(Array.from(leadsDB.entries()), null, 2);
-    fs.writeFileSync('leads.json', data);
+    fs.writeFileSync('leads.json', JSON.stringify(Array.from(leadsDB.entries()), null, 2));
 }
 
 function loadLeadsFromFile() {
     try {
         if (fs.existsSync('leads.json')) {
-            const data = fs.readFileSync('leads.json', 'utf8');
-            const entries = JSON.parse(data);
-            entries.forEach(([key, value]) => leadsDB.set(key, value));
-            console.log(`✅ Loaded ${leadsDB.size} leads from database`);
+            const entries = JSON.parse(fs.readFileSync('leads.json', 'utf8'));
+            entries.forEach(([k, v]) => leadsDB.set(k, v));
+            console.log('✅ Loaded ' + leadsDB.size + ' leads');
         }
-    } catch (error) {
-        console.error('Error loading leads:', error);
-    }
+    } catch (e) { console.error('Load leads error:', e); }
 }
 
-// Initialize WhatsApp client
-client.initialize();
+// Only run standalone mode if this file is executed directly
+if (require.main === module) {
+    client.initialize();
+    const app = express();
+    app.use(express.json());
+    app.get('/', (_req, res) => res.json({ status: 'running', leads: leadsDB.size, uptime: process.uptime() }));
+    app.get('/leads', (_req, res) => res.json({ total: leadsDB.size, leads: Array.from(leadsDB.values()) }));
+    app.listen(PORT, () => console.log('🚀 Server on port ' + PORT));
+}
 
-// Express server for health checks
-const app = express();
+// Export for use inside backend — pass the wa client from manager
+function initBTFBot(waClient) {
+    loadLeadsFromFile();
+    startReminderChecker();
+    // Override the client reference so all sends use backend's client
+    Object.assign(client, waClient);
+    botStartTime = Date.now();
+    console.log('✅ BTF Bot initialized via backend client');
+}
 
-app.get('/', (_req, res) => {
-    res.json({
-        status: 'running',
-        bot: 'BTF WhatsApp Automation',
-        leads: leadsDB.size,
-        uptime: process.uptime()
-    });
-});
-
-app.get('/leads', (_req, res) => {
-    const leads = Array.from(leadsDB.values());
-    res.json({ total: leads.length, leads });
-});
-
-app.get('/stats', (_req, res) => {
-    const leads = Array.from(leadsDB.values());
-    const stats = {
-        total: leads.length,
-        qualified: leads.filter(l => l.qualified).length,
-        booked: leads.filter(l => l.bookingStatus === 'confirmed').length,
-        handovers: leads.filter(l => l.handoverRequested).length,
-        byGoal: leads.reduce((acc, l) => {
-            if (l.goal) acc[l.goal] = (acc[l.goal] || 0) + 1;
-            return acc;
-        }, {}),
-        byLevel: leads.reduce((acc, l) => {
-            if (l.fitnessLevel) acc[l.fitnessLevel] = (acc[l.fitnessLevel] || 0) + 1;
-            return acc;
-        }, {})
-    };
-    res.json(stats);
-});
-
-app.get('/handovers', (_req, res) => {
-    try {
-        const log = fs.existsSync('handovers.log') ? fs.readFileSync('handovers.log', 'utf8') : 'No handovers yet.';
-        res.type('text').send(log);
-    } catch {
-        res.status(500).send('Error reading handovers log.');
-    }
-});
-
-app.listen(PORT, () => {
-    console.log(`🚀 BTF Bot server running on port ${PORT}`);
-});
+module.exports = { handleMessage, initBTFBot, leadsDB, conversationState, pausedChats };

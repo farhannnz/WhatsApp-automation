@@ -180,7 +180,7 @@ export default function NodeEditor({ node, onChange, onDelete, onClose }) {
 
                 {type === 'save_data' && (
                     <p className={styles.hint} style={{ padding: '8px 0' }}>
-                        This node saves all collected data to Firebase at this point in the flow. No configuration needed.
+                        Saves all collected data to Firebase at this point in the flow. Sheet URL is configured at the top of the Flow Builder.
                     </p>
                 )}
 
