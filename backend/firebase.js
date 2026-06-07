@@ -7,7 +7,7 @@ function initFirebase() {
     if (initialized) return;
 
     // Use service account JSON file directly (simplest approach)
-    const serviceAccount = require(path.join(__dirname, '../fake-1582b-firebase-adminsdk-fbsvc-daa323e3c1.json'));
+    const serviceAccount = require(path.join(__dirname, 'fake-1582b-firebase-adminsdk-fbsvc-878526e19e.json'));
 
     admin.initializeApp({
         credential: admin.credential.cert(serviceAccount),

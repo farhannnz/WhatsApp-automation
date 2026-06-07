@@ -54,6 +54,9 @@ async function createSession(userId) {
     cleanLockFiles(userId);
 
     const chromePaths = [
+        '/usr/bin/chromium-browser',
+        '/usr/bin/chromium',
+        '/usr/bin/google-chrome',
         'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
         'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
         process.env.CHROME_PATH
@@ -65,9 +68,9 @@ async function createSession(userId) {
         authStrategy: new LocalAuth({ clientId: userId, dataPath: './wa_sessions' }),
         puppeteer: {
             headless: true,
-            executablePath: executablePath || undefined,
-            protocolTimeout: 120000,
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--no-first-run']
+            executablePath: executablePath || '/usr/bin/chromium-browser',
+            protocolTimeout: 300000,
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--no-first-run', '--single-process', '--no-zygote']
         }
     });
 
