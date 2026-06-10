@@ -18,6 +18,7 @@ waManager.setIO(io);
 
 app.use(cors());
 app.use(express.json());
+app.use('/uploads', require('express').static(require('path').join(__dirname, 'uploads')));
 
 // Routes
 app.use('/api/auth', require('./routes/auth'));
@@ -26,6 +27,7 @@ app.use('/api/whatsapp', require('./routes/whatsapp'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/bulk', require('./routes/bulk'));
 app.use('/api/media', require('./routes/media'));
+app.use('/api/ai-bots', require('./routes/aibot'));
 
 app.get('/health', (_, res) => res.json({ ok: true }));
 

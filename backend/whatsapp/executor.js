@@ -12,7 +12,7 @@
  *  - end         : mark conversation complete
  */
 
-const { db, rtdb } = require('../firebase');
+const { db } = require('../firebase');
 const axios = require('axios');
 const { google } = require('googleapis');
 const path = require('path');
@@ -136,22 +136,15 @@ function findMatchingTrigger(flow, msg) {
 }
 
 async function saveLead(userId, contactId, data, sheetUrl) {
-    const phone = contactId.replace('@c.us', '');
+    const phone = contactId.replace('@c.us', '').replace('@lid', '');
     const key = `${userId}_${phone}`;
     console.log(`💾 Saving lead: ${phone} | fields: ${Object.keys(data).join(', ')}`);
     try {
         await db.collection('wbp_leads').doc(key).set({
-            userId,
-            contactId,
-            phone,
-            ...data,
+            userId, contactId, phone, ...data,
             updatedAt: new Date().toISOString()
         }, { merge: true });
-        await rtdb.ref(`wbp_leads/${userId}/${phone.replace(/\+/g, '')}`).set({
-            ...data, phone, updatedAt: Date.now()
-        });
         console.log(`✅ Lead saved: ${phone}`);
-        // Also append to Google Sheet if configured
         if (sheetUrl) {
             await appendToSheet(sheetUrl, { phone, ...data }).catch(e =>
                 console.error('Sheet append error:', e.message)

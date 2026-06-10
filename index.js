@@ -132,6 +132,14 @@ async function handleMessage(userId, msg, message) {
     const lead = leadsDB.get(userId) || {};
     const lower = msg.toLowerCase().trim();
 
+    // Handle pause/resume
+    if (msg === '..') {
+        if (pausedChats.has(userId)) { pausedChats.delete(userId); console.log('▶️ Resumed: ' + userId); }
+        else { pausedChats.add(userId); console.log('⏸️ Paused: ' + userId); }
+        return;
+    }
+    if (pausedChats.has(userId)) return;
+
     lead.lastMsgAt = Date.now();
     lead.lastStage = state.stage;
     lead.userId = lead.userId || userId;

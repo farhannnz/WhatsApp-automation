@@ -2,17 +2,13 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
 const fs = require('fs');
 const path = require('path');
-const { db, rtdb } = require('../firebase');
+const { db } = require('../firebase');
 const flowExecutor = require('./executor');
 
 // BTF bot username — messages for this user go to index.js logic directly
 const BTF_USERNAME = 'boxtofit';
-let btfUserId = null; // resolved at runtime from Firebase
-let btfBot = null;    // lazy loaded index.js module
-
-// RTDB paths — prefixed to avoid conflicts with other bots on same Firebase
-const RTDB_STATUS = (uid) => `wbp_waStatus/${uid}`;
-const RTDB_QR     = (uid) => `wbp_waQR/${uid}`;
+let btfUserId = null;
+let btfBot = null;
 
 const sessions = new Map();
 let _io = null;
@@ -30,10 +26,9 @@ function getActiveCount() {
     return count;
 }
 
-async function setStatus(userId, status) {
+function setStatus(userId, status) {
     const s = sessions.get(userId);
     if (s) s.status = status;
-    await rtdb.ref(RTDB_STATUS(userId)).set({ status, updatedAt: Date.now() });
     if (_io) _io.to(userId).emit('wa:status', { status });
 }
 
@@ -44,7 +39,7 @@ function cleanLockFiles(userId) {
             fs.unlinkSync(lockFile);
             console.log(`🧹 Cleaned lock for: ${userId}`);
         }
-    } catch {}
+    } catch { }
 }
 
 async function createSession(userId) {
@@ -52,7 +47,7 @@ async function createSession(userId) {
     if (existing && (existing.status === 'ready' || existing.status === 'qr')) return;
 
     if (existing) {
-        try { await existing.client.destroy(); } catch {}
+        try { await existing.client.destroy(); } catch { }
         sessions.delete(userId);
     }
 
@@ -80,32 +75,48 @@ async function createSession(userId) {
     });
 
     sessions.set(userId, { client, status: 'initializing' });
-    await setStatus(userId, 'initializing');
+    setStatus(userId, 'initializing');
 
     client.on('qr', async (qr) => {
-        await setStatus(userId, 'qr');
+        setStatus(userId, 'qr');
         const qrImage = await qrcode.toDataURL(qr);
         if (_io) _io.to(userId).emit('wa:qr', { qr: qrImage });
-        await rtdb.ref(RTDB_QR(userId)).set({ qr: qrImage, updatedAt: Date.now() });
     });
 
     client.on('ready', async () => {
-        await setStatus(userId, 'ready');
-        await rtdb.ref(RTDB_QR(userId)).remove();
+        setStatus(userId, 'ready');
         console.log(`✅ WA ready for user: ${userId}`);
 
         // Inject WA-JS (wppconnect) for list/button support
         try {
-            const wppPath = require('path').join(
-                __dirname, '..', 'node_modules', '@wppconnect', 'wa-js', 'dist', 'wppconnect-wa.js'
-            );
-            const wppScript = require('fs').readFileSync(wppPath, 'utf8');
+            const wppPath = path.join(__dirname, '..', 'node_modules', '@wppconnect', 'wa-js', 'dist', 'wppconnect-wa.js');
+            const wppScript = fs.readFileSync(wppPath, 'utf8');
             await client.pupPage.evaluate(wppScript);
             await client.pupPage.waitForFunction('window.WPP && window.WPP.isReady', { timeout: 15000 });
             console.log(`✅ WPP injected for user: ${userId}`);
         } catch (e) {
             console.log(`ℹ️ WPP injection failed: ${e.message}`);
         }
+
+        // Heartbeat — check every 5 min if session is alive, auto-reconnect if dead
+        const heartbeat = setInterval(async () => {
+            try {
+                const state = await client.getState();
+                if (state !== 'CONNECTED') {
+                    console.log(`💔 Heartbeat: ${userId} state=${state}, reconnecting...`);
+                    clearInterval(heartbeat);
+                    sessions.delete(userId);
+                    setStatus(userId, 'disconnected');
+                    setTimeout(() => createSession(userId), 3000);
+                }
+            } catch (e) {
+                console.log(`💔 Heartbeat failed for ${userId}, reconnecting...`);
+                clearInterval(heartbeat);
+                sessions.delete(userId);
+                setStatus(userId, 'disconnected');
+                setTimeout(() => createSession(userId), 3000);
+            }
+        }, 5 * 60 * 1000);
 
         // BTF: check if this is boxtofit user, init BTF bot with this client
         try {
@@ -122,16 +133,15 @@ async function createSession(userId) {
         }
     });
 
-    client.on('auth_failure', async () => {
-        await setStatus(userId, 'auth_failed');
+    client.on('auth_failure', () => {
+        setStatus(userId, 'auth_failed');
         sessions.delete(userId);
     });
 
-    client.on('disconnected', async (reason) => {
+    client.on('disconnected', (reason) => {
         console.log(`⚠️ WA disconnected for ${userId}: ${reason}`);
-        await setStatus(userId, 'disconnected');
+        setStatus(userId, 'disconnected');
         sessions.delete(userId);
-        // Auto-reconnect after 5 seconds if session folder still exists
         const sessionPath = path.join('./wa_sessions', `session-${userId}`);
         if (fs.existsSync(sessionPath)) {
             console.log(`🔄 Auto-reconnecting ${userId} in 5s...`);
@@ -148,7 +158,6 @@ async function createSession(userId) {
         // BTF: route to index.js handleMessage directly
         if (btfUserId && userId === btfUserId && btfBot) {
             try {
-                const msgTime = message.timestamp * 1000;
                 await btfBot.handleMessage(message.from, message.body.trim(), message);
             } catch (err) {
                 console.error(`BTF exec error:`, err.message);
@@ -157,40 +166,47 @@ async function createSession(userId) {
         }
 
         try {
-            // Get user's active flow — fetch all user flows, find active one in JS
+            // Check for active AI bot first
+            const aiBotSnap = await db.collection('wbp_ai_bots')
+                .where('userId', '==', userId).where('active', '==', true).limit(1).get();
+            if (!aiBotSnap.empty) {
+                const botConfig = { id: aiBotSnap.docs[0].id, ...aiBotSnap.docs[0].data() };
+                const { handleAIMessage } = require('./aiHandler');
+                await handleAIMessage(userId, botConfig, message, client);
+                return;
+            }
+            // Fall back to flow executor
             const flowSnap = await db.collection('wbp_flows')
-                .where('userId', '==', userId)
-                .get();
+                .where('userId', '==', userId).get();
             const activeDoc = flowSnap.docs.find(d => d.data().active === true);
             if (!activeDoc) return;
             const flow = { id: activeDoc.id, ...activeDoc.data() };
             await flowExecutor.handleMessage(userId, flow, message, client);
         } catch (err) {
             console.error(`Flow exec error for ${userId}:`, err.message);
-        }
-    });
+        }    });
 
-    client.initialize().catch(async (err) => {
+    client.initialize().catch((err) => {
         console.error(`❌ WA init failed for ${userId}:`, err.message);
         sessions.delete(userId);
-        await setStatus(userId, 'disconnected');
+        setStatus(userId, 'disconnected');
         try {
             const sessionPath = path.join('./wa_sessions', `session-${userId}`);
             if (fs.existsSync(sessionPath)) {
                 fs.rmSync(sessionPath, { recursive: true, force: true });
                 console.log(`🧹 Removed broken session for: ${userId}`);
             }
-        } catch {}
+        } catch { }
     });
 }
 
 async function disconnect(userId) {
     const session = sessions.get(userId);
     if (session) {
-        try { await session.client.destroy(); } catch {}
+        try { await session.client.destroy(); } catch { }
         sessions.delete(userId);
     }
-    await setStatus(userId, 'disconnected');
+    setStatus(userId, 'disconnected');
 }
 
 async function sendMessage(userId, waId, text) {
@@ -221,14 +237,11 @@ async function sendMedia(userId, waId, filePath, caption) {
 
 async function restoreSessions() {
     try {
-        // Check session folders directly — no Firebase query needed
         const sessionsDir = './wa_sessions';
         if (!fs.existsSync(sessionsDir)) return;
-
         const folders = fs.readdirSync(sessionsDir).filter(f =>
             f.startsWith('session-') && fs.statSync(path.join(sessionsDir, f)).isDirectory()
         );
-
         for (const folder of folders) {
             const userId = folder.replace('session-', '');
             console.log(`🔄 Restoring WA session for: ${userId}`);

@@ -16,6 +16,7 @@ export default function Layout({ children }) {
         { to: '/dashboard', label: '🏠 Dashboard' },
         { to: '/leads', label: '📋 Leads' },
         { to: '/bulk', label: '📨 Bulk Message' },
+        { to: '/ai-bots', label: '🤖 AI Bots' },
         ...(user?.role === 'admin' ? [{ to: '/admin', label: '⚙️ Admin' }] : [])
     ];
 

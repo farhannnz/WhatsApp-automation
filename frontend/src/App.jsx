@@ -6,6 +6,8 @@ import FlowBuilder from './pages/FlowBuilder';
 import Admin from './pages/Admin';
 import Leads from './pages/Leads';
 import Bulk from './pages/Bulk';
+import AIBots from './pages/AIBots';
+import AIBotEditor from './pages/AIBotEditor';
 
 function PrivateRoute({ children, adminOnly = false }) {
     const { user, loading } = useAuth();
@@ -25,6 +27,8 @@ export default function App() {
                     <Route path="/flows/:id" element={<PrivateRoute><FlowBuilder /></PrivateRoute>} />
                     <Route path="/leads" element={<PrivateRoute><Leads /></PrivateRoute>} />
                     <Route path="/bulk" element={<PrivateRoute><Bulk /></PrivateRoute>} />
+                    <Route path="/ai-bots" element={<PrivateRoute><AIBots /></PrivateRoute>} />
+                    <Route path="/ai-bots/:id" element={<PrivateRoute><AIBotEditor /></PrivateRoute>} />
                     <Route path="/admin" element={<PrivateRoute adminOnly><Admin /></PrivateRoute>} />
                     <Route path="*" element={<Navigate to="/dashboard" replace />} />
                 </Routes>
