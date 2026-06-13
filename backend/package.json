@@ -7,7 +7,8 @@
     "dev": "nodemon server.js"
   },
   "dependencies": {
-    "@google/generative-ai": "^0.21.0",
+    "@google/generative-ai": "^0.24.0",
+    "@aws-sdk/client-bedrock-runtime": "^3.600.0",
     "@wppconnect/wa-js": "^4.3.0",
     "axios": "^1.6.0",
     "bcryptjs": "^2.4.3",

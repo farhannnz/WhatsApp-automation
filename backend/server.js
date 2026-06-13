@@ -45,6 +45,13 @@ io.on('connection', (socket) => {
 const PORT = process.env.PORT || 4000;
 httpServer.listen(PORT, async () => {
     console.log(`🚀 Backend running on port ${PORT}`);
-    // Restore WA sessions for users who were previously connected
     await waManager.restoreSessions();
+}).on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+        console.log(`⚠️ Port ${PORT} busy, retrying in 3s...`);
+        setTimeout(() => {
+            httpServer.close();
+            httpServer.listen(PORT);
+        }, 3000);
+    }
 });

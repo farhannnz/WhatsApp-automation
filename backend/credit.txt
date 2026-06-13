@@ -1,0 +1,29 @@
+PORT=5000
+MONGO_URI=mongodb+srv://krahit57_db_user:ALjmC3bAVzcND3pi@cluster0.n91cglk.mongodb.net/ca-docs?retryWrites=true&w=majority
+JWT_SECRET=VH74YB8B3M2RT643L16YUQXY_change_this_in_production
+BASE_URL=https://ca-backend-cqed.onrender.com
+
+# Twilio Configuration
+TWILIO_ACCOUNT_SID=AC82e54b9a699fcca1842e9599abca37f6
+TWILIO_AUTH_TOKEN=c133d64c0087cea88210d4a6cf2ecb0e
+TWILIO_WHATSAPP_NUMBER=whatsapp:+14155238886
+
+# Cloudinary Configuration (Not using)
+# CLOUDINARY_CLOUD_NAME=dc1nago71
+# CLOUDINARY_API_KEY=225157158652676
+# CLOUDINARY_API_SECRET=Jo3KQNkv-O3PfMD0eHx8pH_aF0s
+
+# Supabase Configuration
+SUPABASE_URL=https://gucmawhgbsvienzldwya.supabase.co
+SUPABASE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd1Y21hd2hnYnN2aWVuemxkd3lhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI2MzY0NzgsImV4cCI6MjA4ODIxMjQ3OH0.XF182nuuGf__o-XkwXzFm_3dYBnOcoAndow4c8mP-38
+
+# AWS Configuration for Lex v2
+AWS_ACCESS_KEY_ID=AKIA4N5ZZJABDA2JFBRI
+AWS_SECRET_ACCESS_KEY=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
+AWS_REGION=us-east-1
+LEX_BOT_ID=YFWQ01LHUG
+LEX_BOT_ALIAS_ID=TSTALIASID
+LEX_LOCALE_ID=en_US
+
+# AWS S3 Configuration
+AWS_S3_BUCKET_NAME=ca-documents-bucket
