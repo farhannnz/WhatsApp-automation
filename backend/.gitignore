@@ -2,4 +2,11 @@ node_modules/
 .env
 wa_sessions/
 *.log
+credit.txt
+gemnieg.html
+hhh.js
+test.html
+*.json
+!package.json
+!package-lock.json
 *firebase-adminsdk*.json
