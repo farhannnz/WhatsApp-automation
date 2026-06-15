@@ -1,9 +1,9 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  background: #0f1117;
-  color: #e2e8f0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  background: #0d1117;
+  color: #e9edef;
   min-height: 100vh;
 }
 
@@ -21,6 +21,8 @@ input, textarea, select {
   outline: none;
 }
 
-::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-track { background: #1a1d27; }
-::-webkit-scrollbar-thumb { background: #3a3f55; border-radius: 3px; }
+/* WhatsApp-style scrollbar */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: #111b21; }
+::-webkit-scrollbar-thumb { background: #2a3942; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #00a884; }

@@ -11,7 +11,7 @@ const fs = require('fs');
 
 const CONV_COLLECTION = 'wbp_ai_conversations';
 const MAX_HISTORY = 10;
-const MODEL = 'gemini-2.5-flash';
+const MODEL = 'gemini-3.1-flash-lite';
 
 async function appendToSheet(sheetUrl, data) {
     const match = sheetUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
@@ -136,7 +136,11 @@ Rules:
     } catch (err) {
         const errMsg = err.response?.data?.error?.message || err.message;
         console.error(`AI handler error for ${contactId}:`, errMsg);
-        await message.reply('Sorry, something went wrong. Please try again.').catch(() => {});
+        if (errMsg && errMsg.includes('quota')) {
+            await message.reply('🙏 Hum abhi bahut busy hain, thodi der baad try karein.').catch(() => {});
+        } else {
+            await message.reply('Sorry, something went wrong. Please try again.').catch(() => {});
+        }
     }
 }
 

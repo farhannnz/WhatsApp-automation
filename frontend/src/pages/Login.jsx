@@ -27,8 +27,8 @@ export default function Login() {
     return (
         <div className={styles.page}>
             <div className={styles.card}>
-                <div className={styles.logo}>🤖</div>
-                <h1 className={styles.title}>WA Bot Platform</h1>
+                <div className={styles.logo}>💬</div>
+                <h1 className={styles.title}>WA Automation</h1>
                 <p className={styles.sub}>Sign in to your account</p>
                 <form onSubmit={handleSubmit} className={styles.form}>
                     <input

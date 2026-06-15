@@ -3,60 +3,77 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #0f1117 0%, #1a1d2e 100%);
+  background: linear-gradient(160deg, #0d1117 0%, #111b21 60%, #075e54 100%);
 }
 
 .card {
-  background: #1e2130;
-  border: 1px solid #2d3148;
-  border-radius: 16px;
+  background: #111b21;
+  border: 1px solid #2a3942;
+  border-radius: 18px;
   padding: 48px 40px;
   width: 100%;
   max-width: 400px;
   text-align: center;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
 }
 
-.logo { font-size: 48px; margin-bottom: 12px; }
+.logo {
+  width: 64px; height: 64px;
+  background: #00a884;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 32px;
+  margin: 0 auto 16px;
+  box-shadow: 0 0 30px rgba(0,168,132,0.3);
+}
 
 .title {
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 700;
-  color: #fff;
+  color: #e9edef;
   margin-bottom: 6px;
 }
 
-.sub { color: #6b7280; font-size: 14px; margin-bottom: 32px; }
+.sub { color: #8696a0; font-size: 14px; margin-bottom: 32px; }
 
 .form { display: flex; flex-direction: column; gap: 14px; }
 
 .input {
-  background: #0f1117;
-  border: 1px solid #2d3148;
-  border-radius: 8px;
-  padding: 12px 16px;
-  color: #e2e8f0;
+  background: #1f2c34;
+  border: 1px solid #2a3942;
+  border-radius: 10px;
+  padding: 13px 16px;
+  color: #e9edef;
   font-size: 15px;
   transition: border-color 0.2s;
+  outline: none;
 }
 
-.input:focus { border-color: #6366f1; }
+.input:focus { border-color: #00a884; }
+.input::placeholder { color: #8696a0; }
 
 .btn {
-  background: #6366f1;
+  background: #00a884;
   color: #fff;
-  border-radius: 8px;
-  padding: 13px;
+  border-radius: 10px;
+  padding: 14px;
   font-size: 15px;
   font-weight: 600;
   margin-top: 4px;
-  transition: background 0.2s;
+  transition: background 0.2s, transform 0.1s;
+  cursor: pointer;
+  border: none;
 }
 
-.btn:hover:not(:disabled) { background: #4f46e5; }
+.btn:hover:not(:disabled) { background: #008f70; transform: translateY(-1px); }
 .btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
 .error {
-  color: #f87171;
+  color: #ef4444;
   font-size: 13px;
   text-align: left;
+  background: rgba(239,68,68,0.08);
+  border: 1px solid rgba(239,68,68,0.2);
+  border-radius: 8px;
+  padding: 10px 12px;
 }

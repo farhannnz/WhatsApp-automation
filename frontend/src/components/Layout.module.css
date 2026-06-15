@@ -1,70 +1,170 @@
+/* ── WhatsApp-themed Layout ── */
+:root {
+  --wa-green:       #00a884;
+  --wa-green-dark:  #075e54;
+  --wa-green-mid:   #128c7e;
+  --wa-green-light: #25d366;
+  --wa-bg:          #0d1117;
+  --wa-surface:     #111b21;
+  --wa-surface2:    #1f2c34;
+  --wa-border:      #2a3942;
+  --wa-text:        #e9edef;
+  --wa-text-muted:  #8696a0;
+  --wa-active-bg:   rgba(0,168,132,0.15);
+}
+
 .layout {
   display: flex;
   min-height: 100vh;
+  background: var(--wa-bg);
+  font-family: 'Segoe UI', system-ui, sans-serif;
 }
 
+/* ─── Sidebar ─── */
 .sidebar {
-  width: 220px;
-  background: #1e2130;
-  border-right: 1px solid #2d3148;
+  width: 240px;
+  background: var(--wa-surface);
+  border-right: 1px solid var(--wa-border);
   display: flex;
   flex-direction: column;
-  padding: 24px 0;
+  padding: 0;
   position: fixed;
   top: 0; left: 0; bottom: 0;
+  z-index: 100;
 }
 
 .brand {
-  font-size: 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 20px 18px;
+  border-bottom: 1px solid var(--wa-border);
+  background: var(--wa-surface2);
+}
+
+.brandIcon {
+  width: 36px; height: 36px;
+  background: var(--wa-green);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.brandText {
+  font-size: 16px;
   font-weight: 700;
-  color: #fff;
-  padding: 0 24px 24px;
-  border-bottom: 1px solid #2d3148;
+  color: var(--wa-text);
+  letter-spacing: 0.3px;
+}
+
+.brandSub {
+  font-size: 10px;
+  color: var(--wa-green);
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
 }
 
 .nav {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 16px 12px;
+  gap: 2px;
+  padding: 12px 10px;
+  overflow-y: auto;
 }
 
 .navLink {
-  padding: 10px 14px;
-  border-radius: 8px;
-  color: #9ca3af;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 14px;
+  border-radius: 10px;
+  color: var(--wa-text-muted);
   font-size: 14px;
+  font-weight: 500;
   transition: all 0.15s;
+  position: relative;
 }
 
-.navLink:hover { background: #2d3148; color: #e2e8f0; }
-.active { background: #6366f1 !important; color: #fff !important; }
+.navLink:hover {
+  background: var(--wa-surface2);
+  color: var(--wa-text);
+}
 
+.active {
+  background: var(--wa-active-bg) !important;
+  color: var(--wa-green) !important;
+  font-weight: 600;
+}
+
+.active::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 20%; bottom: 20%;
+  width: 3px;
+  background: var(--wa-green);
+  border-radius: 0 3px 3px 0;
+}
+
+/* ─── User Section ─── */
 .userSection {
-  padding: 16px 20px;
-  border-top: 1px solid #2d3148;
+  padding: 14px 16px;
+  border-top: 1px solid var(--wa-border);
+  background: var(--wa-surface2);
 }
 
-.userName { font-size: 14px; font-weight: 600; color: #e2e8f0; }
-.userRole { font-size: 12px; color: #6b7280; margin-bottom: 10px; text-transform: capitalize; }
+.userInfo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.userAvatar {
+  width: 34px; height: 34px;
+  background: var(--wa-green-dark);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.userName { font-size: 13px; font-weight: 600; color: var(--wa-text); }
+.userRole {
+  font-size: 11px;
+  color: var(--wa-green);
+  text-transform: capitalize;
+  font-weight: 500;
+}
 
 .logoutBtn {
   width: 100%;
   background: transparent;
-  border: 1px solid #3a3f55;
-  color: #9ca3af;
-  border-radius: 6px;
+  border: 1px solid var(--wa-border);
+  color: var(--wa-text-muted);
+  border-radius: 8px;
   padding: 7px;
   font-size: 13px;
   transition: all 0.15s;
+  cursor: pointer;
 }
 
-.logoutBtn:hover { border-color: #f87171; color: #f87171; }
+.logoutBtn:hover {
+  border-color: #ef4444;
+  color: #ef4444;
+  background: rgba(239,68,68,0.08);
+}
 
+/* ─── Main content ─── */
 .main {
-  margin-left: 220px;
+  margin-left: 240px;
   flex: 1;
-  padding: 32px;
+  padding: 28px 32px;
   min-height: 100vh;
+  background: var(--wa-bg);
+  color: var(--wa-text);
 }

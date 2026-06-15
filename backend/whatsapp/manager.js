@@ -242,10 +242,12 @@ async function restoreSessions() {
         const folders = fs.readdirSync(sessionsDir).filter(f =>
             f.startsWith('session-') && fs.statSync(path.join(sessionsDir, f)).isDirectory()
         );
-        for (const folder of folders) {
-            const userId = folder.replace('session-', '');
+        for (let i = 0; i < folders.length; i++) {
+            const userId = folders[i].replace('session-', '');
             console.log(`🔄 Restoring WA session for: ${userId}`);
             cleanLockFiles(userId);
+            // Delay between sessions to avoid RAM spike
+            if (i > 0) await new Promise(r => setTimeout(r, 30000));
             await createSession(userId);
         }
     } catch (err) {
