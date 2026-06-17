@@ -174,10 +174,8 @@ async function executeNode(userId, flow, node, message, client, contactData) {
             const caption = (data.caption || '').replace(/\{\{(\w+)\}\}/g, (_, key) => contactData[key] || '');
             if (data.filename) {
                 try {
-                    const { MessageMedia } = require('whatsapp-web.js');
                     const filePath = require('path').join(__dirname, '..', 'uploads', data.filename);
-                    const media = MessageMedia.fromFilePath(filePath);
-                    await client.sendMessage(contactId, media, { caption });
+                    await client.sendMessage(contactId, filePath, { caption });
                 } catch (e) {
                     console.error('Image send failed:', e.message);
                     if (caption) await message.reply(caption);
@@ -192,10 +190,8 @@ async function executeNode(userId, flow, node, message, client, contactData) {
             const text = (data.text || '').replace(/\{\{(\w+)\}\}/g, (_, key) => contactData[key] || '');
             if (data.filename) {
                 try {
-                    const { MessageMedia } = require('whatsapp-web.js');
                     const filePath = require('path').join(__dirname, '..', 'uploads', data.filename);
-                    const media = MessageMedia.fromFilePath(filePath);
-                    await client.sendMessage(contactId, media, { caption: text });
+                    await client.sendMessage(contactId, filePath, { caption: text });
                 } catch (e) {
                     console.error('Image in message failed:', e.message);
                     if (text) await message.reply(text);

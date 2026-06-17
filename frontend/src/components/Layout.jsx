@@ -14,9 +14,11 @@ export default function Layout({ children }) {
 
     const links = [
         { to: '/dashboard', label: 'Dashboard', icon: '🏠' },
-        { to: '/leads', label: 'Leads', icon: '📋' },
-        { to: '/bulk', label: 'Bulk Message', icon: '📨' },
+        { to: '/flows', label: 'Flows', icon: '🔄' },
+        { to: '/leads', label: 'Flow Leads', icon: '📋' },
         { to: '/ai-bots', label: 'AI Bots', icon: '🤖' },
+        { to: '/ai-leads', label: 'AI Leads', icon: '🔥' },
+        { to: '/bulk', label: 'Bulk Message', icon: '📨' },
         ...(user?.role === 'admin' ? [{ to: '/admin', label: 'Admin', icon: '⚙️' }] : [])
     ];
 

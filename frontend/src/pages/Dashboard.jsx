@@ -17,22 +17,6 @@ const SOCKET_URL = import.meta.env.VITE_API_URL
     ? import.meta.env.VITE_API_URL.replace('/api', '')
     : 'http://localhost:4000';
 
-/* ── Mock analytics data (replace with real API later) ── */
-const msgActivity = [
-    { day: 'Mon', sent: 42, received: 58 },
-    { day: 'Tue', sent: 75, received: 91 },
-    { day: 'Wed', sent: 53, received: 67 },
-    { day: 'Thu', sent: 88, received: 102 },
-    { day: 'Fri', sent: 120, received: 134 },
-    { day: 'Sat', sent: 61, received: 74 },
-    { day: 'Sun', sent: 34, received: 45 },
-];
-
-const flowStats = [
-    { name: 'Active', value: 0, color: '#25d366' },
-    { name: 'Inactive', value: 0, color: '#2a3942' },
-];
-
 const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
         return (
@@ -52,18 +36,27 @@ const CustomTooltip = ({ active, payload, label }) => {
     return null;
 };
 
+const CLASS_COLORS = {
+    hot: '#ef4444', warm: '#f59e0b', cold: '#60a5fa', new: '#a78bfa', unclassified: '#8696a0'
+};
+
 export default function Dashboard() {
     const { user } = useAuth();
     const navigate = useNavigate();
-    const [flows, setFlows] = useState([]);
+
     const [waStatus, setWaStatus] = useState('disconnected');
     const [showQR, setShowQR] = useState(false);
-    const [newFlowName, setNewFlowName] = useState('');
-    const [creating, setCreating] = useState(false);
-    const [loadError, setLoadError] = useState('');
+
+    // Analytics data
+    const [flows, setFlows] = useState([]);
+    const [aiBots, setAiBots] = useState([]);
+    const [aiLeads, setAiLeads] = useState([]);
+    const [aiStats, setAiStats] = useState(null);
+    const [flowLeads, setFlowLeads] = useState([]);
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        loadFlows();
+        loadAll();
         const socket = io(SOCKET_URL, { transports: ['websocket'] });
         socket.on('connect', () => socket.emit('join', user.uid));
         socket.on('wa:status', ({ status }) => setWaStatus(status));
@@ -71,44 +64,23 @@ export default function Dashboard() {
         return () => socket.disconnect();
     }, []);
 
-    async function loadFlows() {
+    async function loadAll() {
+        setLoading(true);
         try {
-            setLoadError('');
-            const r = await api.get('/flows');
-            setFlows(r.data || []);
-        } catch (err) {
-            setLoadError(err.response?.data?.error || 'Failed to load flows');
-        }
-    }
-
-    async function createFlow() {
-        if (!newFlowName.trim()) return;
-        setCreating(true);
-        try {
-            const r = await api.post('/flows', { name: newFlowName.trim() });
-            setNewFlowName('');
-            navigate(`/flows/${r.data.id}`);
-        } catch {
-            setCreating(false);
-        }
-    }
-
-    async function deleteFlow(id, e) {
-        e.stopPropagation();
-        if (!confirm('Delete this flow?')) return;
-        await api.delete(`/flows/${id}`);
-        setFlows(f => f.filter(x => x.id !== id));
-    }
-
-    async function toggleActive(flow, e) {
-        e.stopPropagation();
-        if (flow.active) {
-            if (!confirm('Deactivate this flow? Bot will stop responding.')) return;
-            await api.patch(`/flows/${flow.id}/deactivate`);
-            setFlows(f => f.map(x => x.id === flow.id ? { ...x, active: false } : x));
-        } else {
-            await api.patch(`/flows/${flow.id}/activate`);
-            setFlows(f => f.map(x => ({ ...x, active: x.id === flow.id })));
+            const [flowsRes, botsRes, aiLeadsRes, aiStatsRes, flowLeadsRes] = await Promise.all([
+                api.get('/flows').catch(() => ({ data: [] })),
+                api.get('/ai-bots').catch(() => ({ data: [] })),
+                api.get('/ai-leads').catch(() => ({ data: [] })),
+                api.get('/ai-leads/stats').catch(() => ({ data: null })),
+                api.get('/bulk/leads').catch(() => ({ data: [] })),
+            ]);
+            setFlows(flowsRes.data || []);
+            setAiBots(botsRes.data || []);
+            setAiLeads(aiLeadsRes.data || []);
+            setAiStats(aiStatsRes.data || null);
+            setFlowLeads(flowLeadsRes.data || []);
+        } finally {
+            setLoading(false);
         }
     }
 
@@ -117,27 +89,59 @@ export default function Dashboard() {
         setWaStatus('disconnected');
     }
 
+    // Derived analytics
+    const activeFlows = flows.filter(f => f.active).length;
+    const activeBots  = aiBots.filter(b => b.active).length;
+    const totalLeads  = aiLeads.length + flowLeads.length;
+
+    // AI leads by classification for pie
+    const clsPie = ['hot', 'warm', 'cold', 'new', 'unclassified'].map(cls => ({
+        name: cls.charAt(0).toUpperCase() + cls.slice(1),
+        value: aiStats?.byClassification?.[cls] || 0,
+        color: CLASS_COLORS[cls],
+    })).filter(d => d.value > 0);
+
+    // AI leads by bot for bar chart
+    const botBar = aiStats?.byBot
+        ? Object.entries(aiStats.byBot).map(([name, count]) => ({ name, count }))
+        : [];
+
+    // AI leads activity over last 7 days
+    const last7 = buildLast7Days(aiLeads);
+
+    // Flow leads by day
+    const flowLast7 = buildLast7Days(flowLeads);
+
+    // Combined activity chart
+    const combinedActivity = last7.map((d, i) => ({
+        day: d.day,
+        'AI Leads': d.count,
+        'Flow Leads': flowLast7[i]?.count || 0,
+    }));
+
+    // Flow status pie
+    const flowPie = [
+        { name: 'Active', value: activeFlows, color: '#25d366' },
+        { name: 'Inactive', value: Math.max(flows.length - activeFlows, 0), color: '#2a3942' },
+    ].filter(d => d.value > 0);
+
+    // Recent AI leads (top 5)
+    const recentAI = [...aiLeads].slice(0, 5);
+
     const statusColor = {
         ready: '#25d366', qr: '#f59e0b', initializing: '#f59e0b',
         disconnected: '#8696a0', auth_failed: '#ef4444'
     };
     const statusLabel = {
-        ready: 'Connected', qr: 'Scan QR Code', initializing: 'Connecting...',
+        ready: 'Connected', qr: 'Scan QR', initializing: 'Connecting...',
         disconnected: 'Not Connected', auth_failed: 'Auth Failed'
     };
-
-    const activeCount  = flows.filter(f => f.active).length;
-    const totalNodes   = flows.reduce((s, f) => s + (f.nodes?.length || 0), 0);
-    const pieData = [
-        { name: 'Active', value: activeCount || 0, color: '#25d366' },
-        { name: 'Inactive', value: Math.max((flows.length - activeCount), 0), color: '#2a3942' },
-    ];
 
     return (
         <Layout>
             <div className={styles.page}>
 
-                {/* ─── Header ─── */}
+                {/* Header */}
                 <div className={styles.header}>
                     <div>
                         <h1 className={styles.title}>Dashboard</h1>
@@ -145,10 +149,7 @@ export default function Dashboard() {
                     </div>
                     <div className={styles.waCard}>
                         <div className={styles.waStatus}>
-                            <span
-                                className={styles.dot}
-                                style={{ background: statusColor[waStatus] || '#8696a0', color: statusColor[waStatus] || '#8696a0' }}
-                            />
+                            <span className={styles.dot} style={{ background: statusColor[waStatus] || '#8696a0' }} />
                             <span>{statusLabel[waStatus] || waStatus}</span>
                         </div>
                         {waStatus === 'ready' ? (
@@ -161,211 +162,242 @@ export default function Dashboard() {
                     </div>
                 </div>
 
-                {/* ─── Stats Cards ─── */}
+                {/* Stats Cards */}
                 <div className={styles.statsGrid}>
-                    <div className={styles.statCard}>
+                    <div className={styles.statCard} onClick={() => navigate('/flows')} style={{ cursor: 'pointer' }}>
                         <div className={styles.statIcon}>🔄</div>
                         <div className={styles.statValue}>{flows.length}</div>
                         <div className={styles.statLabel}>Total Flows</div>
-                        <div className={styles.statTrend}>↑ Automation ready</div>
+                        <div className={styles.statTrend}>{activeFlows} active</div>
+                    </div>
+                    <div className={styles.statCard} onClick={() => navigate('/ai-bots')} style={{ cursor: 'pointer' }}>
+                        <div className={styles.statIcon}>🤖</div>
+                        <div className={styles.statValue}>{aiBots.length}</div>
+                        <div className={styles.statLabel}>AI Bots</div>
+                        <div className={styles.statTrend}>{activeBots} live</div>
+                    </div>
+                    <div className={styles.statCard} onClick={() => navigate('/ai-leads')} style={{ cursor: 'pointer' }}>
+                        <div className={styles.statIcon}>🔥</div>
+                        <div className={styles.statValue}>{aiStats?.byClassification?.hot || 0}</div>
+                        <div className={styles.statLabel}>Hot AI Leads</div>
+                        <div className={styles.statTrend}>{aiStats?.completionRate || 0}% hot+warm rate</div>
                     </div>
                     <div className={styles.statCard}>
-                        <div className={styles.statIcon}>✅</div>
-                        <div className={styles.statValue}>{activeCount}</div>
-                        <div className={styles.statLabel}>Active Flows</div>
-                        <div className={styles.statTrend}>
-                            {activeCount > 0 ? '● Bot is live' : '○ None running'}
-                        </div>
-                    </div>
-                    <div className={styles.statCard}>
-                        <div className={styles.statIcon}>🧩</div>
-                        <div className={styles.statValue}>{totalNodes}</div>
-                        <div className={styles.statLabel}>Total Nodes</div>
-                        <div className={styles.statTrend}>↑ Across all flows</div>
-                    </div>
-                    <div className={styles.statCard}>
-                        <div className={styles.statIcon}>📨</div>
-                        <div className={styles.statValue}>573</div>
-                        <div className={styles.statLabel}>Messages (7d)</div>
-                        <div className={styles.statTrend}>↑ 12% this week</div>
+                        <div className={styles.statIcon}>📋</div>
+                        <div className={styles.statValue}>{totalLeads}</div>
+                        <div className={styles.statLabel}>Total Leads</div>
+                        <div className={styles.statTrend}>AI + Flow combined</div>
                     </div>
                 </div>
 
-                {/* ─── Charts ─── */}
+                {/* Charts Row 1 */}
                 <div className={styles.chartsRow}>
 
-                    {/* Area Chart — Message Activity */}
-                    <div className={styles.chartCard}>
+                    {/* Combined lead activity */}
+                    <div className={styles.chartCard} style={{ flex: 2 }}>
                         <div className={styles.chartTitle}>
-                            📈 Message Activity <span>last 7 days</span>
+                            📈 Lead Activity <span>last 7 days</span>
                         </div>
                         <ResponsiveContainer width="100%" height={200}>
-                            <AreaChart data={msgActivity} margin={{ top: 0, right: 10, left: -20, bottom: 0 }}>
+                            <AreaChart data={combinedActivity} margin={{ top: 0, right: 10, left: -20, bottom: 0 }}>
                                 <defs>
-                                    <linearGradient id="sentGrad" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="5%"  stopColor="#00a884" stopOpacity={0.25} />
-                                        <stop offset="95%" stopColor="#00a884" stopOpacity={0} />
+                                    <linearGradient id="aiGrad" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="5%" stopColor="#a78bfa" stopOpacity={0.3} />
+                                        <stop offset="95%" stopColor="#a78bfa" stopOpacity={0} />
                                     </linearGradient>
-                                    <linearGradient id="recvGrad" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="5%"  stopColor="#25d366" stopOpacity={0.15} />
+                                    <linearGradient id="flowGrad" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="5%" stopColor="#25d366" stopOpacity={0.2} />
                                         <stop offset="95%" stopColor="#25d366" stopOpacity={0} />
                                     </linearGradient>
                                 </defs>
                                 <CartesianGrid strokeDasharray="3 3" stroke="#1f2c34" vertical={false} />
                                 <XAxis dataKey="day" tick={{ fill: '#8696a0', fontSize: 11 }} axisLine={false} tickLine={false} />
-                                <YAxis tick={{ fill: '#8696a0', fontSize: 11 }} axisLine={false} tickLine={false} />
+                                <YAxis tick={{ fill: '#8696a0', fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
                                 <Tooltip content={<CustomTooltip />} />
-                                <Legend
-                                    wrapperStyle={{ fontSize: 12, color: '#8696a0', paddingTop: 10 }}
-                                    iconType="circle"
-                                />
-                                <Area
-                                    type="monotone" dataKey="sent" name="Sent"
-                                    stroke="#00a884" strokeWidth={2}
-                                    fill="url(#sentGrad)"
-                                    dot={false} activeDot={{ r: 4, fill: '#00a884' }}
-                                />
-                                <Area
-                                    type="monotone" dataKey="received" name="Received"
-                                    stroke="#25d366" strokeWidth={2}
-                                    fill="url(#recvGrad)"
-                                    dot={false} activeDot={{ r: 4, fill: '#25d366' }}
-                                />
+                                <Legend wrapperStyle={{ fontSize: 12, color: '#8696a0', paddingTop: 8 }} iconType="circle" />
+                                <Area type="monotone" dataKey="AI Leads" stroke="#a78bfa" strokeWidth={2} fill="url(#aiGrad)" dot={false} activeDot={{ r: 4 }} />
+                                <Area type="monotone" dataKey="Flow Leads" stroke="#25d366" strokeWidth={2} fill="url(#flowGrad)" dot={false} activeDot={{ r: 4 }} />
                             </AreaChart>
                         </ResponsiveContainer>
                     </div>
 
-                    {/* Pie Chart — Flow Status */}
+                    {/* AI Lead Classification Pie */}
                     <div className={styles.chartCard}>
                         <div className={styles.chartTitle}>
-                            🥧 Flow Status <span>distribution</span>
+                            🥧 AI Lead Classification
                         </div>
                         <ResponsiveContainer width="100%" height={200}>
                             <PieChart>
                                 <Pie
-                                    data={pieData.every(d => d.value === 0)
-                                        ? [{ name: 'No Flows', value: 1, color: '#2a3942' }]
-                                        : pieData
-                                    }
+                                    data={clsPie.length ? clsPie : [{ name: 'No Leads', value: 1, color: '#2a3942' }]}
                                     cx="50%" cy="50%"
-                                    innerRadius={55} outerRadius={80}
+                                    innerRadius={50} outerRadius={75}
                                     paddingAngle={3}
                                     dataKey="value"
                                 >
-                                    {(pieData.every(d => d.value === 0)
-                                        ? [{ name: 'No Flows', value: 1, color: '#2a3942' }]
-                                        : pieData
-                                    ).map((entry, i) => (
-                                        <Cell key={i} fill={entry.color} stroke="transparent" />
+                                    {(clsPie.length ? clsPie : [{ name: 'No Leads', value: 1, color: '#2a3942' }]).map((e, i) => (
+                                        <Cell key={i} fill={e.color} stroke="transparent" />
                                     ))}
                                 </Pie>
-                                <Tooltip
-                                    contentStyle={{
-                                        background: '#1f2c34', border: '1px solid #2a3942',
-                                        borderRadius: 10, fontSize: 12, color: '#e9edef'
-                                    }}
-                                />
-                                <Legend
-                                    wrapperStyle={{ fontSize: 12, color: '#8696a0' }}
-                                    iconType="circle"
-                                />
+                                <Tooltip contentStyle={{ background: '#1f2c34', border: '1px solid #2a3942', borderRadius: 10, fontSize: 12, color: '#e9edef' }} />
+                                <Legend wrapperStyle={{ fontSize: 11, color: '#8696a0' }} iconType="circle" />
+                            </PieChart>
+                        </ResponsiveContainer>
+                    </div>
+
+                    {/* Flow Status Pie */}
+                    <div className={styles.chartCard}>
+                        <div className={styles.chartTitle}>
+                            🔄 Flow Status
+                        </div>
+                        <ResponsiveContainer width="100%" height={200}>
+                            <PieChart>
+                                <Pie
+                                    data={flowPie.length ? flowPie : [{ name: 'No Flows', value: 1, color: '#2a3942' }]}
+                                    cx="50%" cy="50%"
+                                    innerRadius={50} outerRadius={75}
+                                    paddingAngle={3}
+                                    dataKey="value"
+                                >
+                                    {(flowPie.length ? flowPie : [{ name: 'No Flows', value: 1, color: '#2a3942' }]).map((e, i) => (
+                                        <Cell key={i} fill={e.color} stroke="transparent" />
+                                    ))}
+                                </Pie>
+                                <Tooltip contentStyle={{ background: '#1f2c34', border: '1px solid #2a3942', borderRadius: 10, fontSize: 12, color: '#e9edef' }} />
+                                <Legend wrapperStyle={{ fontSize: 11, color: '#8696a0' }} iconType="circle" />
                             </PieChart>
                         </ResponsiveContainer>
                     </div>
                 </div>
 
-                {/* ─── Flows Section ─── */}
-                <div className={styles.section}>
-                    <div className={styles.sectionHeader}>
-                        <h2 className={styles.sectionTitle}>🔄 My Flows</h2>
-                        <div className={styles.createRow}>
-                            <input
-                                className={styles.input}
-                                placeholder="Enter flow name..."
-                                value={newFlowName}
-                                onChange={e => setNewFlowName(e.target.value)}
-                                onKeyDown={e => e.key === 'Enter' && createFlow()}
-                            />
-                            <button className={styles.btnPrimary} onClick={createFlow} disabled={creating}>
-                                {creating ? '...' : '+ New Flow'}
-                            </button>
+                {/* Charts Row 2 */}
+                {botBar.length > 0 && (
+                    <div className={styles.chartsRow}>
+                        <div className={styles.chartCard} style={{ flex: 2 }}>
+                            <div className={styles.chartTitle}>
+                                🤖 Leads per AI Bot
+                            </div>
+                            <ResponsiveContainer width="100%" height={200}>
+                                <BarChart data={botBar} margin={{ top: 0, right: 10, left: -20, bottom: 0 }}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#1f2c34" vertical={false} />
+                                    <XAxis dataKey="name" tick={{ fill: '#8696a0', fontSize: 11 }} axisLine={false} tickLine={false} />
+                                    <YAxis tick={{ fill: '#8696a0', fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
+                                    <Tooltip content={<CustomTooltip />} />
+                                    <Bar dataKey="count" name="Leads" fill="#a78bfa" radius={[4, 4, 0, 0]} />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
+
+                        {/* AI Lead Classification breakdown bar */}
+                        <div className={styles.chartCard}>
+                            <div className={styles.chartTitle}>
+                                📊 Classification Breakdown
+                            </div>
+                            <div className={styles.clsBreakdown}>
+                                {['hot', 'warm', 'cold', 'new', 'unclassified'].map(cls => {
+                                    const count = aiStats?.byClassification?.[cls] || 0;
+                                    const pct = aiStats?.total ? Math.round((count / aiStats.total) * 100) : 0;
+                                    return (
+                                        <div key={cls} className={styles.clsRow}>
+                                            <div className={styles.clsLabel} style={{ color: CLASS_COLORS[cls] }}>
+                                                {cls.charAt(0).toUpperCase() + cls.slice(1)}
+                                            </div>
+                                            <div className={styles.clsBar}>
+                                                <div
+                                                    className={styles.clsFill}
+                                                    style={{ width: `${pct}%`, background: CLASS_COLORS[cls] }}
+                                                />
+                                            </div>
+                                            <div className={styles.clsCount}>{count}</div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
                         </div>
                     </div>
+                )}
 
-                    {loadError && (
-                        <div className={styles.errorBox}>
-                            ⚠️ {loadError} —{' '}
-                            <button
-                                onClick={loadFlows}
-                                style={{ color: '#00a884', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}
-                            >
-                                Retry
-                            </button>
+                {/* Bottom row: Recent AI Leads + Quick Links */}
+                <div className={styles.bottomRow}>
+                    {/* Recent AI Leads */}
+                    <div className={styles.recentCard}>
+                        <div className={styles.recentHeader}>
+                            <span>🤖 Recent AI Leads</span>
+                            <button className={styles.viewAll} onClick={() => navigate('/ai-leads')}>View all →</button>
                         </div>
-                    )}
-
-                    {flows.length === 0 && !loadError ? (
-                        <div className={styles.empty}>
-                            <div style={{ fontSize: 32, marginBottom: 12 }}>🔄</div>
-                            No flows yet. Create your first automation flow to get started.
-                        </div>
-                    ) : (
-                        <div className={styles.tableWrap}>
-                            <table className={styles.table}>
+                        {recentAI.length === 0 ? (
+                            <div className={styles.recentEmpty}>No AI leads yet</div>
+                        ) : (
+                            <table className={styles.recentTable}>
                                 <thead>
                                     <tr>
-                                        <th>Flow Name</th>
-                                        <th>Nodes</th>
-                                        <th>Status</th>
-                                        <th>Updated</th>
-                                        <th>Actions</th>
+                                        <th>Contact</th>
+                                        <th>Bot</th>
+                                        <th>Classification</th>
+                                        <th>Last Active</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {flows.map(flow => (
-                                        <tr key={flow.id}>
-                                            <td>
-                                                <span className={styles.flowName}>{flow.name}</span>
-                                            </td>
-                                            <td className={styles.metaCell}>{flow.nodes?.length || 0} nodes</td>
-                                            <td>
-                                                {flow.active
-                                                    ? <span className={styles.activeBadge}>● Active</span>
-                                                    : <span className={styles.inactiveBadge}>Inactive</span>
-                                                }
-                                            </td>
-                                            <td className={styles.metaCell}>
-                                                {flow.updatedAt ? new Date(flow.updatedAt).toLocaleDateString() : '—'}
-                                            </td>
-                                            <td>
-                                                <div className={styles.rowActions}>
-                                                    <button
-                                                        className={flow.active ? styles.btnSmallOrange : styles.btnSmallGreen}
-                                                        onClick={e => toggleActive(flow, e)}
-                                                    >
-                                                        {flow.active ? 'Deactivate' : 'Activate'}
-                                                    </button>
-                                                    <button
-                                                        className={styles.btnSmall}
-                                                        onClick={() => navigate(`/flows/${flow.id}`)}
-                                                    >
-                                                        ✏️ Edit
-                                                    </button>
-                                                    <button
-                                                        className={styles.btnSmallRed}
-                                                        onClick={e => deleteFlow(flow.id, e)}
-                                                    >
-                                                        🗑 Delete
-                                                    </button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ))}
+                                    {recentAI.map(l => {
+                                        const clsColor = CLASS_COLORS[l.classification] || '#8696a0';
+                                        return (
+                                            <tr key={l.id} onClick={() => navigate('/ai-leads')} style={{ cursor: 'pointer' }}>
+                                                <td>{l.phone || l.contactId}</td>
+                                                <td>{l.botName || '—'}</td>
+                                                <td>
+                                                    <span style={{
+                                                        color: clsColor, background: clsColor + '20',
+                                                        border: `1px solid ${clsColor}40`,
+                                                        borderRadius: 20, padding: '2px 10px', fontSize: 11, fontWeight: 600
+                                                    }}>
+                                                        {l.classification || 'new'}
+                                                    </span>
+                                                </td>
+                                                <td style={{ color: '#8696a0', fontSize: 12 }}>
+                                                    {l.updatedAt ? new Date(l.updatedAt).toLocaleDateString('en-IN') : '—'}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
                                 </tbody>
                             </table>
+                        )}
+                    </div>
+
+                    {/* Quick Links */}
+                    <div className={styles.quickCard}>
+                        <div className={styles.quickTitle}>⚡ Quick Actions</div>
+                        <div className={styles.quickGrid}>
+                            <div className={styles.quickItem} onClick={() => navigate('/flows')}>
+                                <div className={styles.quickIcon}>🔄</div>
+                                <div className={styles.quickLabel}>Manage Flows</div>
+                            </div>
+                            <div className={styles.quickItem} onClick={() => navigate('/ai-bots')}>
+                                <div className={styles.quickIcon}>🤖</div>
+                                <div className={styles.quickLabel}>AI Bots</div>
+                            </div>
+                            <div className={styles.quickItem} onClick={() => navigate('/ai-leads')}>
+                                <div className={styles.quickIcon}>📊</div>
+                                <div className={styles.quickLabel}>AI Leads</div>
+                            </div>
+                            <div className={styles.quickItem} onClick={() => navigate('/bulk')}>
+                                <div className={styles.quickIcon}>📨</div>
+                                <div className={styles.quickLabel}>Bulk Message</div>
+                            </div>
+                            <div className={styles.quickItem} onClick={() => navigate('/leads')}>
+                                <div className={styles.quickIcon}>📋</div>
+                                <div className={styles.quickLabel}>Flow Leads</div>
+                            </div>
+                            {waStatus !== 'ready' && (
+                                <div className={styles.quickItem} onClick={() => setShowQR(true)}>
+                                    <div className={styles.quickIcon}>📱</div>
+                                    <div className={styles.quickLabel}>Connect WA</div>
+                                </div>
+                            )}
                         </div>
-                    )}
+                    </div>
                 </div>
+
             </div>
 
             {showQR && (
@@ -377,4 +409,22 @@ export default function Dashboard() {
             )}
         </Layout>
     );
+}
+
+// Build last-7-days activity array from leads list
+function buildLast7Days(leads) {
+    const days = [];
+    const now = new Date();
+    for (let i = 6; i >= 0; i--) {
+        const d = new Date(now);
+        d.setDate(d.getDate() - i);
+        const label = d.toLocaleDateString('en-IN', { weekday: 'short' });
+        const dateStr = d.toDateString();
+        const count = leads.filter(l => {
+            const t = l.updatedAt || l.createdAt || l.savedAt;
+            return t && new Date(t).toDateString() === dateStr;
+        }).length;
+        days.push({ day: label, count });
+    }
+    return days;
 }

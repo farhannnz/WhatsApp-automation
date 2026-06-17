@@ -28,6 +28,7 @@ app.use('/api/admin', require('./routes/admin'));
 app.use('/api/bulk', require('./routes/bulk'));
 app.use('/api/media', require('./routes/media'));
 app.use('/api/ai-bots', require('./routes/aibot'));
+app.use('/api/ai-leads', require('./routes/aileads'));
 
 app.get('/health', (_, res) => res.json({ ok: true }));
 

@@ -1,6 +1,7 @@
 node_modules/
 .env
 wa_sessions/
+ba_sessions/
 *.log
 credit.txt
 gemnieg.html

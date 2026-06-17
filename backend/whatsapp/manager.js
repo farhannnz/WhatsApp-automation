@@ -1,23 +1,42 @@
-const { Client, LocalAuth } = require('whatsapp-web.js');
+/**
+ * WhatsApp Manager — Baileys based
+ * No Chrome/Puppeteer — pure WebSocket, much more stable
+ */
+
+const {
+    default: makeWASocket,
+    useMultiFileAuthState,
+    DisconnectReason,
+    fetchLatestBaileysVersion,
+    makeCacheableSignalKeyStore,
+    isJidBroadcast,
+    isJidGroup,
+    isJidNewsletter,
+    proto,
+    generateWAMessageFromContent,
+    prepareWAMessageMedia,
+    areJidsSameUser
+} = require('@whiskeysockets/baileys');
+
+const pino = require('pino');
 const qrcode = require('qrcode');
 const fs = require('fs');
 const path = require('path');
 const { db } = require('../firebase');
-const flowExecutor = require('./executor');
 
-// BTF bot username — messages for this user go to index.js logic directly
+const SESSIONS_DIR = './ba_sessions'; // new folder — separate from old wa_sessions
 const BTF_USERNAME = 'boxtofit';
+
+const sessions = new Map(); // userId -> { sock, status, qr, retryCount }
+const processedMsgIds = new Set(); // duplicate message prevention
+let _io = null;
 let btfUserId = null;
 let btfBot = null;
-
-const sessions = new Map();
-let _io = null;
 
 function setIO(io) { _io = io; }
 
 function getStatus(userId) {
-    const s = sessions.get(userId);
-    return s ? s.status : 'disconnected';
+    return sessions.get(userId)?.status || 'disconnected';
 }
 
 function getActiveCount() {
@@ -32,222 +51,325 @@ function setStatus(userId, status) {
     if (_io) _io.to(userId).emit('wa:status', { status });
 }
 
-function cleanLockFiles(userId) {
-    try {
-        const lockFile = path.join('./wa_sessions', `session-${userId}`, 'SingletonLock');
-        if (fs.existsSync(lockFile)) {
-            fs.unlinkSync(lockFile);
-            console.log(`🧹 Cleaned lock for: ${userId}`);
-        }
-    } catch { }
+function makeLogger() {
+    return pino({ level: 'silent' }); // quiet logs
 }
 
 async function createSession(userId) {
     const existing = sessions.get(userId);
     if (existing && (existing.status === 'ready' || existing.status === 'qr')) return;
 
-    if (existing) {
-        try { await existing.client.destroy(); } catch { }
+    // Close existing if any
+    if (existing?.sock) {
+        try { existing.sock.end(); } catch { }
         sessions.delete(userId);
     }
 
-    cleanLockFiles(userId);
+    const sessionDir = path.join(SESSIONS_DIR, `session-${userId}`);
+    fs.mkdirSync(sessionDir, { recursive: true });
 
-    const chromePaths = [
-        '/usr/bin/chromium-browser',
-        '/usr/bin/chromium',
-        '/usr/bin/google-chrome',
-        'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-        'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-        process.env.CHROME_PATH
-    ].filter(Boolean);
+    const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
+    const { version } = await fetchLatestBaileysVersion();
 
-    const executablePath = chromePaths.find(p => { try { return fs.existsSync(p); } catch { return false; } });
-
-    const client = new Client({
-        authStrategy: new LocalAuth({ clientId: userId, dataPath: './wa_sessions' }),
-        puppeteer: {
-            headless: true,
-            executablePath: executablePath || '/usr/bin/chromium-browser',
-            protocolTimeout: 300000,
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--no-first-run', '--single-process', '--no-zygote']
-        }
+    const sock = makeWASocket({
+        version,
+        logger: makeLogger(),
+        auth: {
+            creds: state.creds,
+            keys: makeCacheableSignalKeyStore(state.keys, makeLogger())
+        },
+        printQRInTerminal: false,
+        browser: ['WA Automation', 'Chrome', '121.0.0'],
+        syncFullHistory: false,
+        generateHighQualityLinkPreview: false,
+        getMessage: async () => undefined,
     });
 
-    sessions.set(userId, { client, status: 'initializing' });
+    sessions.set(userId, { sock, status: 'initializing', retryCount: 0 });
     setStatus(userId, 'initializing');
 
-    client.on('qr', async (qr) => {
-        setStatus(userId, 'qr');
-        const qrImage = await qrcode.toDataURL(qr);
-        if (_io) _io.to(userId).emit('wa:qr', { qr: qrImage });
-    });
+    // ── Creds update ──
+    sock.ev.on('creds.update', saveCreds);
 
-    client.on('ready', async () => {
-        setStatus(userId, 'ready');
-        console.log(`✅ WA ready for user: ${userId}`);
+    // ── Connection update ──
+    sock.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect, qr } = update;
 
-        // Inject WA-JS (wppconnect) for list/button support
-        try {
-            const wppPath = path.join(__dirname, '..', 'node_modules', '@wppconnect', 'wa-js', 'dist', 'wppconnect-wa.js');
-            const wppScript = fs.readFileSync(wppPath, 'utf8');
-            await client.pupPage.evaluate(wppScript);
-            await client.pupPage.waitForFunction('window.WPP && window.WPP.isReady', { timeout: 15000 });
-            console.log(`✅ WPP injected for user: ${userId}`);
-        } catch (e) {
-            console.log(`ℹ️ WPP injection failed: ${e.message}`);
+        if (qr) {
+            setStatus(userId, 'qr');
+            try {
+                const qrImage = await qrcode.toDataURL(qr);
+                if (_io) _io.to(userId).emit('wa:qr', { qr: qrImage });
+                console.log(`� QR ready for user: ${userId}`);
+            } catch (e) {
+                console.error('QR generate error:', e.message);
+            }
         }
 
-        // Heartbeat — check every 5 min if session is alive, auto-reconnect if dead
-        const heartbeat = setInterval(async () => {
+        if (connection === 'open') {
+            setStatus(userId, 'ready');
+            const s = sessions.get(userId);
+            if (s) s.retryCount = 0;
+            console.log(`✅ WA ready for user: ${userId}`);
+
+            // BTF hook
             try {
-                const state = await client.getState();
-                if (state !== 'CONNECTED') {
-                    console.log(`💔 Heartbeat: ${userId} state=${state}, reconnecting...`);
-                    clearInterval(heartbeat);
-                    sessions.delete(userId);
-                    setStatus(userId, 'disconnected');
-                    setTimeout(() => createSession(userId), 3000);
+                const snap = await db.collection('wbp_users')
+                    .where('username', '==', BTF_USERNAME).limit(1).get();
+                if (!snap.empty && snap.docs[0].id === userId) {
+                    btfUserId = userId;
+                    btfBot = require(path.join(__dirname, '../../index.js'));
+                    // Pass a compatible client wrapper
+                    btfBot.initBTFBot(makeBotClient(userId));
+                    console.log(`✅ BTF bot hooked for userId: ${userId}`);
                 }
             } catch (e) {
-                console.log(`💔 Heartbeat failed for ${userId}, reconnecting...`);
-                clearInterval(heartbeat);
+                console.log(`ℹ️ BTF hook failed: ${e.message}`);
+            }
+        }
+
+        if (connection === 'close') {
+            const statusCode = lastDisconnect?.error?.output?.statusCode;
+            const reason = DisconnectReason;
+            const shouldReconnect = statusCode !== reason.loggedOut;
+
+            console.log(`⚠️ WA disconnected for ${userId}, code: ${statusCode}`);
+            setStatus(userId, 'disconnected');
+
+            if (statusCode === reason.loggedOut) {
+                // User logged out — clear session
+                console.log(`🚪 ${userId} logged out — clearing session`);
                 sessions.delete(userId);
-                setStatus(userId, 'disconnected');
-                setTimeout(() => createSession(userId), 3000);
-            }
-        }, 5 * 60 * 1000);
-
-        // BTF: check if this is boxtofit user, init BTF bot with this client
-        try {
-            const snap = await db.collection('wbp_users')
-                .where('username', '==', BTF_USERNAME).limit(1).get();
-            if (!snap.empty && snap.docs[0].id === userId) {
-                btfUserId = userId;
-                btfBot = require(path.join(__dirname, '../../index.js'));
-                btfBot.initBTFBot(client);
-                console.log(`✅ BTF bot hooked for userId: ${userId}`);
-            }
-        } catch (e) {
-            console.log(`ℹ️ BTF hook failed: ${e.message}`);
-        }
-    });
-
-    client.on('auth_failure', () => {
-        setStatus(userId, 'auth_failed');
-        sessions.delete(userId);
-    });
-
-    client.on('disconnected', (reason) => {
-        console.log(`⚠️ WA disconnected for ${userId}: ${reason}`);
-        setStatus(userId, 'disconnected');
-        sessions.delete(userId);
-        const sessionPath = path.join('./wa_sessions', `session-${userId}`);
-        if (fs.existsSync(sessionPath)) {
-            console.log(`🔄 Auto-reconnecting ${userId} in 5s...`);
-            setTimeout(() => createSession(userId), 5000);
-        }
-    });
-
-    client.on('message', async (message) => {
-        if (message.from === 'status@broadcast') return;
-        if (message.from.endsWith('@g.us')) return;
-        if (message.from.endsWith('@newsletter')) return;
-        console.log(`📨 Message received for ${userId} from ${message.from}: ${message.body}`);
-
-        // BTF: route to index.js handleMessage directly
-        if (btfUserId && userId === btfUserId && btfBot) {
-            try {
-                await btfBot.handleMessage(message.from, message.body.trim(), message);
-            } catch (err) {
-                console.error(`BTF exec error:`, err.message);
-            }
-            return;
-        }
-
-        try {
-            // Check for active AI bot first
-            const aiBotSnap = await db.collection('wbp_ai_bots')
-                .where('userId', '==', userId).where('active', '==', true).limit(1).get();
-            if (!aiBotSnap.empty) {
-                const botConfig = { id: aiBotSnap.docs[0].id, ...aiBotSnap.docs[0].data() };
-                const { handleAIMessage } = require('./aiHandler');
-                await handleAIMessage(userId, botConfig, message, client);
+                try { fs.rmSync(sessionDir, { recursive: true, force: true }); } catch { }
                 return;
             }
-            // Fall back to flow executor
-            const flowSnap = await db.collection('wbp_flows')
-                .where('userId', '==', userId).get();
-            const activeDoc = flowSnap.docs.find(d => d.data().active === true);
-            if (!activeDoc) return;
-            const flow = { id: activeDoc.id, ...activeDoc.data() };
-            await flowExecutor.handleMessage(userId, flow, message, client);
-        } catch (err) {
-            console.error(`Flow exec error for ${userId}:`, err.message);
-        }    });
 
-    client.initialize().catch((err) => {
-        console.error(`❌ WA init failed for ${userId}:`, err.message);
-        sessions.delete(userId);
-        setStatus(userId, 'disconnected');
-        try {
-            const sessionPath = path.join('./wa_sessions', `session-${userId}`);
-            if (fs.existsSync(sessionPath)) {
-                fs.rmSync(sessionPath, { recursive: true, force: true });
-                console.log(`🧹 Removed broken session for: ${userId}`);
-            }
-        } catch { }
+            // Auto reconnect with backoff
+            const s = sessions.get(userId);
+            const retryCount = (s?.retryCount || 0) + 1;
+            if (s) s.retryCount = retryCount;
+
+            const delay = Math.min(retryCount * 5000, 60000); // max 60s
+            console.log(`🔄 Reconnecting ${userId} in ${delay / 1000}s (attempt ${retryCount})...`);
+            sessions.delete(userId);
+            setTimeout(() => createSession(userId), delay);
+        }
     });
+
+    // ── Messages ──
+    sock.ev.on('messages.upsert', async ({ messages, type }) => {
+        if (type !== 'notify') return;
+
+        for (const msg of messages) {
+            try {
+                if (!msg.message) continue;
+                if (msg.key.fromMe) continue;
+                if (isJidBroadcast(msg.key.remoteJid)) continue;
+                if (isJidGroup(msg.key.remoteJid)) continue;
+                if (isJidNewsletter?.(msg.key.remoteJid)) continue;
+
+                // ✅ Duplicate message guard
+                const msgId = msg.key.id;
+                if (processedMsgIds.has(msgId)) {
+                    console.log(`⚠️ Duplicate msg ignored: ${msgId}`);
+                    continue;
+                }
+                processedMsgIds.add(msgId);
+                // Clean old IDs to prevent memory leak (keep last 1000)
+                if (processedMsgIds.size > 1000) {
+                    const first = processedMsgIds.values().next().value;
+                    processedMsgIds.delete(first);
+                }
+
+                const from = msg.key.remoteJid;
+                const body = msg.message?.conversation ||
+                    msg.message?.extendedTextMessage?.text ||
+                    msg.message?.buttonsResponseMessage?.selectedDisplayText ||
+                    msg.message?.listResponseMessage?.title ||
+                    msg.message?.templateButtonReplyMessage?.selectedDisplayText ||
+                    '';
+
+                console.log(`📨 Message received for ${userId} from ${from}: ${body}`);
+
+                // Build compatible message wrapper
+                const message = makeMessageWrapper(sock, msg, from, body, userId);
+
+                // BTF route
+                if (btfUserId && userId === btfUserId && btfBot) {
+                    try {
+                        await btfBot.handleMessage(from, body.trim(), message);
+                    } catch (err) {
+                        console.error(`BTF exec error:`, err.message);
+                    }
+                    continue;
+                }
+
+                // AI bot check
+                const aiBotSnap = await db.collection('wbp_ai_bots')
+                    .where('userId', '==', userId).where('active', '==', true).limit(1).get();
+                if (!aiBotSnap.empty) {
+                    const botConfig = { id: aiBotSnap.docs[0].id, ...aiBotSnap.docs[0].data() };
+                    const { handleAIMessage } = require('./aiHandler');
+                    await handleAIMessage(userId, botConfig, message, makeBotClient(userId));
+                    continue;
+                }
+
+                // Flow executor
+                const flowSnap = await db.collection('wbp_flows')
+                    .where('userId', '==', userId).get();
+                const activeDoc = flowSnap.docs.find(d => d.data().active === true);
+                if (!activeDoc) continue;
+                const flow = { id: activeDoc.id, ...activeDoc.data() };
+                const flowExecutor = require('./executor');
+                await flowExecutor.handleMessage(userId, flow, message, makeBotClient(userId));
+
+            } catch (err) {
+                console.error(`Message handler error for ${userId}:`, err.message);
+            }
+        }
+    });
+}
+
+// ── Message wrapper — makes Baileys msg look like whatsapp-web.js message ──
+function makeMessageWrapper(sock, msg, from, body, userId) {
+    return {
+        from,
+        body,
+        fromMe: msg.key.fromMe,
+        _data: { notifyName: msg.pushName || '' },
+        selectedRowId: msg.message?.listResponseMessage?.singleSelectReply?.selectedRowId || null,
+
+        reply: async (text) => {
+            try {
+                await sock.sendMessage(from, { text: String(text) }, { quoted: msg });
+            } catch (e) {
+                console.error('Reply error:', e.message);
+            }
+        },
+
+        // sendMessage on the contact (not quoted)
+        sendMessage: async (text) => {
+            try {
+                await sock.sendMessage(from, { text: String(text) });
+            } catch (e) {
+                console.error('sendMessage error:', e.message);
+            }
+        },
+    };
+}
+
+// ── Bot client wrapper — used by executor, aiHandler, bulk etc ──
+function makeBotClient(userId) {
+    return {
+        sendMessage: async (to, content, options = {}) => {
+            const sock = sessions.get(userId)?.sock;
+            if (!sock) throw new Error('No active session');
+
+            // String path — read file and send as media
+            if (typeof content === 'string' && (content.startsWith('/') || content.includes('\\') || content.includes('uploads'))) {
+                try {
+                    const buffer = fs.readFileSync(content);
+                    const ext = path.extname(content).toLowerCase();
+                    const mimeMap = {
+                        '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
+                        '.gif': 'image/gif', '.webp': 'image/webp',
+                        '.mp4': 'video/mp4', '.pdf': 'application/pdf',
+                    };
+                    const mimetype = mimeMap[ext] || 'application/octet-stream';
+                    const caption = options.caption || '';
+
+                    if (mimetype.startsWith('image/')) {
+                        await sock.sendMessage(to, { image: buffer, caption, mimetype });
+                    } else if (mimetype.startsWith('video/')) {
+                        await sock.sendMessage(to, { video: buffer, caption, mimetype });
+                    } else {
+                        await sock.sendMessage(to, { document: buffer, caption, mimetype, fileName: path.basename(content) });
+                    }
+                } catch (e) {
+                    console.error('File send error:', e.message);
+                    if (options.caption) await sock.sendMessage(to, { text: options.caption });
+                }
+                return;
+            }
+
+            // Plain text
+            if (typeof content === 'string') {
+                await sock.sendMessage(to, { text: content });
+                return;
+            }
+
+            // Buffer/object with data (legacy MessageMedia format)
+            if (content && content.data) {
+                const buffer = Buffer.from(content.data, 'base64');
+                const mimetype = content.mimetype || 'application/octet-stream';
+                const caption = options.caption || '';
+                if (mimetype.startsWith('image/')) {
+                    await sock.sendMessage(to, { image: buffer, caption, mimetype });
+                } else if (mimetype.startsWith('video/')) {
+                    await sock.sendMessage(to, { video: buffer, caption, mimetype });
+                } else {
+                    await sock.sendMessage(to, { document: buffer, caption, mimetype, fileName: content.filename || 'file' });
+                }
+                return;
+            }
+
+            await sock.sendMessage(to, { text: String(content) });
+        },
+
+        pupPage: {
+            evaluate: async () => 'wpp_not_ready'
+        }
+    };
 }
 
 async function disconnect(userId) {
     const session = sessions.get(userId);
-    if (session) {
-        try { await session.client.destroy(); } catch { }
-        sessions.delete(userId);
+    if (session?.sock) {
+        try { session.sock.end(); } catch { }
     }
+    sessions.delete(userId);
     setStatus(userId, 'disconnected');
 }
 
 async function sendMessage(userId, waId, text) {
-    let session = sessions.get(userId);
+    const session = sessions.get(userId);
     if (!session || session.status !== 'ready') {
-        for (const [, s] of sessions) {
-            if (s.status === 'ready') { session = s; break; }
-        }
+        throw new Error('WhatsApp not connected. Please reconnect from Dashboard.');
     }
-    if (!session || session.status !== 'ready') {
-        throw new Error('No ready WhatsApp session found. Please reconnect from Dashboard.');
-    }
-    await session.client.sendMessage(waId, text);
+    await session.sock.sendMessage(waId, { text: String(text) });
 }
 
 async function sendMedia(userId, waId, filePath, caption) {
-    let session = sessions.get(userId);
-    if (!session || session.status !== 'ready') {
-        for (const [, s] of sessions) {
-            if (s.status === 'ready') { session = s; break; }
-        }
-    }
+    const session = sessions.get(userId);
     if (!session || session.status !== 'ready') throw new Error('WA not connected');
-    const { MessageMedia } = require('whatsapp-web.js');
-    const media = MessageMedia.fromFilePath(filePath);
-    await session.client.sendMessage(waId, media, { caption: caption || '' });
+
+    const buffer = fs.readFileSync(filePath);
+    const ext = path.extname(filePath).toLowerCase();
+    const mimeMap = {
+        '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
+        '.gif': 'image/gif', '.mp4': 'video/mp4', '.pdf': 'application/pdf',
+    };
+    const mimetype = mimeMap[ext] || 'application/octet-stream';
+
+    if (mimetype.startsWith('image/')) {
+        await session.sock.sendMessage(waId, { image: buffer, caption: caption || '', mimetype });
+    } else if (mimetype.startsWith('video/')) {
+        await session.sock.sendMessage(waId, { video: buffer, caption: caption || '', mimetype });
+    } else {
+        await session.sock.sendMessage(waId, { document: buffer, caption: caption || '', mimetype, fileName: path.basename(filePath) });
+    }
 }
 
 async function restoreSessions() {
     try {
-        const sessionsDir = './wa_sessions';
-        if (!fs.existsSync(sessionsDir)) return;
-        const folders = fs.readdirSync(sessionsDir).filter(f =>
-            f.startsWith('session-') && fs.statSync(path.join(sessionsDir, f)).isDirectory()
+        if (!fs.existsSync(SESSIONS_DIR)) return;
+        const folders = fs.readdirSync(SESSIONS_DIR).filter(f =>
+            f.startsWith('session-') && fs.statSync(path.join(SESSIONS_DIR, f)).isDirectory()
         );
         for (let i = 0; i < folders.length; i++) {
             const userId = folders[i].replace('session-', '');
             console.log(`🔄 Restoring WA session for: ${userId}`);
-            cleanLockFiles(userId);
-            // Delay between sessions to avoid RAM spike
-            if (i > 0) await new Promise(r => setTimeout(r, 30000));
+            if (i > 0) await new Promise(r => setTimeout(r, 5000)); // small delay between sessions
             await createSession(userId);
         }
     } catch (err) {
@@ -255,4 +377,14 @@ async function restoreSessions() {
     }
 }
 
-module.exports = { createSession, disconnect, sendMessage, sendMedia, getStatus, getActiveCount, setIO, restoreSessions };
+module.exports = {
+    createSession,
+    disconnect,
+    sendMessage,
+    sendMedia,
+    getStatus,
+    getActiveCount,
+    setIO,
+    restoreSessions,
+    makeBotClient
+};

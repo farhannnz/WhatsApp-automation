@@ -10,8 +10,54 @@ const path = require('path');
 const fs = require('fs');
 
 const CONV_COLLECTION = 'wbp_ai_conversations';
+const AI_LEADS_COLLECTION = 'wbp_ai_leads';
 const MAX_HISTORY = 10;
 const MODEL = 'gemini-3.1-flash-lite';
+
+// Classify lead based on conversation data and message count
+function classifyLead(leadData, messageCount) {
+    const hasPhone = !!(leadData.phone);
+    const hasName = !!(leadData.name);
+    const hasEmail = !!(leadData.email);
+    const fieldsCount = Object.keys(leadData).filter(k =>
+        !['contactId', 'savedAt', 'updatedAt', 'userId', 'botId', 'botName', 'classification', 'messageCount'].includes(k)
+    ).length;
+
+    if (hasPhone && hasName && fieldsCount >= 3) return 'hot';
+    if (hasPhone || hasName || hasEmail || fieldsCount >= 2) return 'warm';
+    if (messageCount >= 3) return 'cold';
+    return 'new';
+}
+
+// Progressive save to wbp_ai_leads — called on every message
+async function saveAILead(userId, botConfig, contactId, leadData, messageCount) {
+    try {
+        const docId = `${userId}_${contactId.replace(/[@:.]/g, '_')}`;
+        const classification = classifyLead(leadData, messageCount);
+        const now = new Date().toISOString();
+
+        await db.collection(AI_LEADS_COLLECTION).doc(docId).set({
+            userId,
+            botId: botConfig.id || '',
+            botName: botConfig.name || '',
+            contactId,
+            phone: leadData.phone || extractPhone(contactId),
+            ...leadData,
+            classification,
+            messageCount,
+            updatedAt: now,
+            createdAt: leadData.createdAt || now,
+        }, { merge: true });
+    } catch (e) {
+        console.error('Progressive lead save error:', e.message);
+    }
+}
+
+function extractPhone(contactId) {
+    if (!contactId) return '';
+    const match = contactId.match(/^(\d+)@/);
+    return match ? '+' + match[1] : contactId;
+}
 
 async function appendToSheet(sheetUrl, data) {
     const match = sheetUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
@@ -42,14 +88,39 @@ async function callGemini(apiKey, contents) {
     return text;
 }
 
+// Conversation-end phrases — agar user yeh bheje toh reply mat karo
+const END_PHRASES = [
+    'bye', 'goodbye', 'good bye', 'take care', 'see you', 'see ya',
+    'thanks bye', 'thank you bye', 'ok bye', 'okay bye', 'tata',
+    'alvida', 'khuda hafiz', 'khuda hafiz', 'shukriya bye',
+    'have a great day', 'have a good day', 'have a nice day',
+    'it was nice', 'it was a pleasure', 'wonderful connecting',
+    'no thank you', 'no thanks', 'not interested', 'nahi chahiye'
+];
+
+function isConversationEnding(text) {
+    const lower = text.toLowerCase().trim();
+    return END_PHRASES.some(phrase => lower.includes(phrase));
+}
+
 async function handleAIMessage(userId, botConfig, message, client) {
     const contactId = message.from;
     const userMsg = message.body?.trim() || '';
+
+    // ✅ Agar user conversation khatam kar raha hai toh reply mat karo
+    if (isConversationEnding(userMsg)) {
+        console.log(`👋 Conversation ended by ${contactId}: "${userMsg}" — skipping reply`);
+        return;
+    }
 
     const convRef = db.collection(CONV_COLLECTION).doc(`${userId}_${contactId.replace(/[@:.]/g, '_')}`);
     const convDoc = await convRef.get();
     let history = convDoc.exists ? (convDoc.data().messages || []) : [];
     let leadData = convDoc.exists ? (convDoc.data().leadData || {}) : {};
+    const messageCount = history.length / 2 + 1; // approximate turn count
+
+    // Progressive save on every incoming message
+    await saveAILead(userId, botConfig, contactId, leadData, messageCount);
 
     const imagesCtx = (botConfig.images || []).length > 0
         ? '\nAvailable images:\n' + botConfig.images.map(i => `- ${i.id}: ${i.name} (${i.tags})`).join('\n')
@@ -93,6 +164,8 @@ Rules:
                 await db.collection('wbp_leads').doc(`${userId}_${contactId.replace(/[@:.]/g, '_')}`).set(
                     { userId, contactId, ...leadData, updatedAt: new Date().toISOString() }, { merge: true }
                 );
+                // Also update AI leads with complete data
+                await saveAILead(userId, botConfig, contactId, leadData, messageCount + 1);
                 if (botConfig.sheetUrl) await appendToSheet(botConfig.sheetUrl, leadData).catch(e => console.error('Sheet error:', e.message));
                 console.log(`✅ AI lead saved:`, leadData);
             } catch (e) { console.error('Save lead parse error:', e.message); }
@@ -105,10 +178,9 @@ Rules:
             const img = (botConfig.images || []).find(i => i.id === imgMatch[1].trim());
             if (img) {
                 try {
-                    const { MessageMedia } = require('whatsapp-web.js');
                     const filePath = path.join(__dirname, '..', 'uploads', 'ai', img.filename);
                     if (fs.existsSync(filePath)) {
-                        await client.sendMessage(contactId, MessageMedia.fromFilePath(filePath), { caption: img.name });
+                        await client.sendMessage(contactId, filePath, { caption: img.name });
                         console.log(`📸 AI sent image: ${img.name}`);
                     }
                 } catch (e) { console.error('Image send error:', e.message); }
@@ -119,7 +191,7 @@ Rules:
         // [HANDOVER:reason]
         const handoverMatch = rawText.match(/\[HANDOVER:([^\]]+)\]/);
         if (handoverMatch && botConfig.notifyNumber) {
-            const waId = botConfig.notifyNumber.replace(/\D/g, '') + '@c.us';
+            const waId = botConfig.notifyNumber.replace(/\D/g, '') + '@s.whatsapp.net';
             await client.sendMessage(waId, `🤖 AI Handover\nContact: ${contactId}\nReason: ${handoverMatch[1]}\nLead: ${JSON.stringify(leadData)}`).catch(() => {});
             textReply = textReply.replace(/\[HANDOVER:[^\]]+\]/g, '').trim();
         }

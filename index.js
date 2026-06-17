@@ -9,7 +9,7 @@ try { qrcode = require('qrcode-terminal'); } catch { }
 
 const SHEET_ID = '1PRSwurGgeagmxQFcBLzlXT7yCmRoKkaZXlKln9_ttY0';
 const SHEET_TAB = 'Bot Leads';
-const AMIT = '917719560422@c.us';
+const AMIT = '917719560422@s.whatsapp.net';
 const PORT = process.env.PORT || 3000;
 
 const BRANCHES = {
@@ -407,7 +407,7 @@ function scheduleTrialReminders(userId, trialDate) {
         const t1 = setTimeout(async () => {
             const lead = leadsDB.get(userId) || {};
             try {
-                await client.sendMessage(userId,
+                await btfSend(userId,
                     '⏰ *Reminder from BTF!*\n\nYour trial session is *tomorrow* at ' + trialDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' }) + ' 🥊\n\n📍 ' + (lead.branch || 'BTF') + '\n\nSee you there! 💪');
                 console.log('📩 Day-before reminder sent to ' + userId);
             } catch (e) { console.error('Reminder 1 failed:', e.message); }
@@ -419,7 +419,7 @@ function scheduleTrialReminders(userId, trialDate) {
         const t2 = setTimeout(async () => {
             const lead = leadsDB.get(userId) || {};
             try {
-                await client.sendMessage(userId,
+                await btfSend(userId,
                     '🔔 *BTF Reminder!*\n\nYour trial session starts in *2 hours* at ' + trialDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' }) + ' 🥊\n\n📍 ' + (lead.branch || 'BTF') + '\n\nGet ready! 🔥');
                 console.log('📩 2-hour reminder sent to ' + userId);
             } catch (e) { console.error('Reminder 2 failed:', e.message); }
@@ -475,7 +475,7 @@ async function triggerHandover(userId, reason, message) {
     fs.appendFileSync('handovers.log', log);
 
     const alert = '🚨 *BTF Lead - Team Request*\n\n👤 Name: ' + (lead.name || 'Not provided') + '\n📞 Phone: ' + (lead.phone || extractPhone(userId)) + '\n🏋️ Branch: ' + (lead.branch || '-') + '\n🎯 Goal: ' + (lead.goal || '-') + '\n💪 Level: ' + (lead.fitnessLevel || '-') + '\n❓ Reason: ' + reason + '\n🕐 ' + new Date().toLocaleString('en-IN');
-    try { await client.sendMessage(AMIT, alert); } catch (e) { console.error('Amit alert failed:', e.message); }
+    try { await btfSend(AMIT, alert); } catch (e) { console.error('Amit alert failed:', e.message); }
 
     await message.reply('🤝 Our team will reach out to you shortly!\n\n📞 Or call directly: +91 77195-60422\n⏰ Mon–Sun: 9 AM – 9 PM');
     conversationState.set(userId, { stage: 'completed' });
@@ -483,7 +483,7 @@ async function triggerHandover(userId, reason, message) {
 
 async function notifyAmit(lead) {
     const msg = '✅ *New BTF Lead*\n\n👤 Name: ' + (lead.name || 'Not provided') + '\n📞 Phone: ' + (lead.phone || '-') + '\n🏋️ Branch: ' + (lead.branch || '-') + '\n🎯 Service: ' + (lead.service || '-') + '\n🏆 Goal: ' + (lead.goal || '-') + '\n💪 Level: ' + (lead.fitnessLevel || '-') + '\n👫 Gender: ' + (lead.gender || '-') + '\n⏰ Timing: ' + (lead.timing || '-') + '\n🕐 ' + new Date().toLocaleString('en-IN');
-    try { await client.sendMessage(AMIT, msg); console.log('✅ Amit notified: ' + lead.phone); }
+    try { await btfSend(AMIT, msg); console.log('✅ Amit notified: ' + lead.phone); }
     catch (e) { console.error('Amit notify failed:', e.message); }
 }
 
@@ -523,7 +523,7 @@ function startReminderChecker() {
             else if (daysSince >= 1 && !sent.includes(1)) dayKey = 1;
             if (!dayKey) continue;
             try {
-                await client.sendMessage(userId, REMINDER_DAYS[dayKey]);
+                await btfSend(userId, REMINDER_DAYS[dayKey]);
                 lead.remindersSent = [...sent, dayKey];
                 lead.reminderSent = true;
                 leadsDB.set(userId, lead);
@@ -570,13 +570,21 @@ if (require.main === module) {
 }
 
 // Export for use inside backend — pass the wa client from manager
+let _btfClient = null;
+
 function initBTFBot(waClient) {
+    _btfClient = waClient;
     loadLeadsFromFile();
     startReminderChecker();
-    // Override the client reference so all sends use backend's client
-    Object.assign(client, waClient);
     botStartTime = Date.now();
     console.log('✅ BTF Bot initialized via backend client');
+}
+
+// Internal send helper — uses injected client
+async function btfSend(to, text) {
+    if (_btfClient) {
+        await _btfClient.sendMessage(to, text);
+    }
 }
 
 module.exports = { handleMessage, initBTFBot, leadsDB, conversationState, pausedChats };

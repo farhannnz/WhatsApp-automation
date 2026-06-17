@@ -1,0 +1,56 @@
+.page { padding: 28px 32px; max-width: 1300px; }
+.header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
+.title { font-size: 24px; font-weight: 700; color: #e9edef; margin: 0 0 4px; }
+.sub { font-size: 13px; color: #8696a0; margin: 0; }
+.headerActions { display: flex; gap: 10px; align-items: center; }
+.search { background: #1f2c34; border: 1px solid #2a3942; color: #e9edef; border-radius: 8px; padding: 9px 14px; font-size: 14px; width: 200px; outline: none; }
+.search:focus { border-color: #00a884; }
+.exportBtn { background: #2a3942; color: #e9edef; border: 1px solid #3d4f58; border-radius: 8px; padding: 9px 16px; font-size: 13px; cursor: pointer; }
+.exportBtn:hover { background: #3d4f58; }
+
+/* Stats */
+.statsRow { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+.statCard { background: #1f2c34; border: 1px solid #2a3942; border-radius: 12px; padding: 14px 20px; min-width: 90px; transition: border-color 0.2s; }
+.statCard:hover { border-color: #3d4f58; }
+.statNum { font-size: 22px; font-weight: 700; color: #e9edef; }
+.statLbl { font-size: 11px; color: #8696a0; margin-top: 3px; }
+
+/* Filters */
+.filters { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
+.filterGroup { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.filterLabel { font-size: 12px; color: #8696a0; font-weight: 600; min-width: 90px; }
+.filterBtn { background: #2a3942; color: #8696a0; border: 1px solid #3d4f58; border-radius: 20px; padding: 4px 14px; font-size: 12px; cursor: pointer; transition: all 0.15s; }
+.filterBtn:hover { border-color: #00a884; color: #e9edef; }
+.filterActive { background: #00a88420; color: #00a884; border-color: #00a88440; }
+
+/* Content layout */
+.content { display: flex; gap: 16px; align-items: flex-start; }
+.tableWrap { flex: 1; overflow-x: auto; background: #1f2c34; border: 1px solid #2a3942; border-radius: 14px; }
+.empty { text-align: center; color: #8696a0; padding: 60px 20px; font-size: 15px; }
+.table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.table th { padding: 12px 16px; text-align: left; color: #8696a0; font-weight: 600; font-size: 11px; text-transform: uppercase; border-bottom: 1px solid #2a3942; background: #1a2530; }
+.table th:first-child { border-radius: 14px 0 0 0; }
+.table th:last-child { border-radius: 0 14px 0 0; }
+.row { border-bottom: 1px solid #1a2530; cursor: pointer; transition: background 0.15s; }
+.row:hover { background: #243440; }
+.rowSelected { background: #1d3040 !important; }
+.row td { padding: 12px 16px; color: #e9edef; }
+.phone { font-family: monospace; color: #00a884; font-size: 13px; }
+.na { color: #8696a0; }
+.botBadge { background: #2a3942; color: #8696a0; font-size: 11px; padding: 3px 10px; border-radius: 20px; }
+.clsBadge { font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 20px; }
+.metaCell { color: #8696a0; font-size: 12px; }
+.delBtn { background: none; border: none; color: #8696a0; cursor: pointer; font-size: 14px; padding: 4px 8px; border-radius: 6px; }
+.delBtn:hover { background: #ef444420; color: #ef4444; }
+
+/* Detail Panel */
+.detail { width: 300px; background: #1f2c34; border: 1px solid #2a3942; border-radius: 14px; flex-shrink: 0; }
+.detailHeader { display: flex; align-items: center; justify-content: space-between; padding: 16px; border-bottom: 1px solid #2a3942; }
+.detailTitle { font-size: 14px; font-weight: 600; color: #e9edef; }
+.closeBtn { background: none; border: none; color: #8696a0; cursor: pointer; font-size: 16px; padding: 2px 6px; border-radius: 6px; }
+.closeBtn:hover { background: #2a3942; color: #e9edef; }
+.detailBody { padding: 16px; display: flex; flex-direction: column; gap: 10px; max-height: 600px; overflow-y: auto; }
+.detailClsBadge { font-size: 12px; font-weight: 600; padding: 5px 14px; border-radius: 20px; display: inline-block; margin-bottom: 4px; }
+.detailRow { display: flex; flex-direction: column; gap: 2px; }
+.detailKey { font-size: 10px; color: #8696a0; text-transform: uppercase; font-weight: 600; }
+.detailVal { font-size: 13px; color: #e9edef; word-break: break-all; }
