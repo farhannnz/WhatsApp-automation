@@ -71,7 +71,7 @@ router.put('/:id', async (req, res) => {
         const doc = await db.collection(C).doc(req.params.id).get();
         if (!doc.exists) return res.status(404).json({ error: 'Not found' });
         if (doc.data().userId !== req.user.uid) return res.status(403).json({ error: 'Access denied' });
-        const { name, geminiApiKey, systemPrompt, contextText, leadFields, sheetUrl, active } = req.body;
+        const { name, geminiApiKey, systemPrompt, contextText, leadFields, sheetUrl, notifyNumber, active } = req.body;
         const updates = { updatedAt: new Date().toISOString() };
         if (name !== undefined) updates.name = name;
         if (geminiApiKey !== undefined) updates.geminiApiKey = geminiApiKey;
@@ -79,9 +79,34 @@ router.put('/:id', async (req, res) => {
         if (contextText !== undefined) updates.contextText = contextText;
         if (leadFields !== undefined) updates.leadFields = leadFields;
         if (sheetUrl !== undefined) updates.sheetUrl = sheetUrl;
+        if (notifyNumber !== undefined) updates.notifyNumber = notifyNumber;
         if (active !== undefined) updates.active = active;
         await db.collection(C).doc(req.params.id).update(updates);
-        res.json({ success: true });
+        // Return updated doc
+        const updated = await db.collection(C).doc(req.params.id).get();
+        res.json({ id: updated.id, ...updated.data() });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// PATCH activate bot
+router.patch('/:id/activate', async (req, res) => {
+    try {
+        const doc = await db.collection(C).doc(req.params.id).get();
+        if (!doc.exists) return res.status(404).json({ error: 'Not found' });
+        if (doc.data().userId !== req.user.uid) return res.status(403).json({ error: 'Access denied' });
+        await db.collection(C).doc(req.params.id).update({ active: true, updatedAt: new Date().toISOString() });
+        res.json({ success: true, active: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// PATCH deactivate bot
+router.patch('/:id/deactivate', async (req, res) => {
+    try {
+        const doc = await db.collection(C).doc(req.params.id).get();
+        if (!doc.exists) return res.status(404).json({ error: 'Not found' });
+        if (doc.data().userId !== req.user.uid) return res.status(403).json({ error: 'Access denied' });
+        await db.collection(C).doc(req.params.id).update({ active: false, updatedAt: new Date().toISOString() });
+        res.json({ success: true, active: false });
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
