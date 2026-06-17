@@ -24,10 +24,20 @@ export default function AIBotEditor() {
         setBot(b => ({ ...b, [key]: val }));
     }
 
+    async function toggleActive() {
+        const newActive = !bot.active;
+        try {
+            await api.put(`/ai-bots/${id}`, { active: newActive });
+            setBot(b => ({ ...b, active: newActive }));
+        } catch (e) {
+            alert('Failed to update bot status');
+        }
+    }
+
     async function save() {
         setSaving(true);
         try {
-            await api.put(`/ai-bots/${id}`, {
+            const r = await api.put(`/ai-bots/${id}`, {
                 name: bot.name,
                 geminiApiKey: bot.geminiApiKey,
                 systemPrompt: bot.systemPrompt,
@@ -35,8 +45,8 @@ export default function AIBotEditor() {
                 leadFields: bot.leadFields,
                 sheetUrl: bot.sheetUrl,
                 notifyNumber: bot.notifyNumber,
-                active: bot.active
             });
+            if (r.data?.id) setBot(r.data); // sync with server response
             setSaved(true);
             setTimeout(() => setSaved(false), 2000);
         } catch { }
@@ -92,13 +102,14 @@ export default function AIBotEditor() {
                             value={bot.name}
                             onChange={e => update('name', e.target.value)}
                         />
-                        {bot.active && <span className={styles.activeBadge}>● Active</span>}
                     </div>
                     <div className={styles.topActions}>
                         <label className={styles.toggle}>
-                            <input type="checkbox" checked={bot.active} onChange={e => update('active', e.target.checked)} />
+                            <input type="checkbox" checked={bot.active} onChange={toggleActive} />
                             <span className={styles.toggleSlider} />
-                            <span style={{ color: '#9ca3af', fontSize: 13 }}>{bot.active ? 'Active' : 'Inactive'}</span>
+                            <span style={{ color: bot.active ? '#25d366' : '#9ca3af', fontSize: 13, fontWeight: 600 }}>
+                                {bot.active ? '● Active' : 'Inactive'}
+                            </span>
                         </label>
                         <button className={styles.btnSave} onClick={save} disabled={saving}>
                             {saving ? 'Saving...' : saved ? '✓ Saved' : 'Save'}
