@@ -9,11 +9,15 @@ export default function Admin() {
     const [form, setForm] = useState({ username: '', password: '', displayName: '' });
     const [error, setError] = useState('');
     const [creating, setCreating] = useState(false);
-    const [tab, setTab] = useState('users'); // users | leads
+    const [tab, setTab] = useState('users');
+    const [geminiKey, setGeminiKey] = useState('');
+    const [keyStatus, setKeyStatus] = useState('');
+    const [savingKey, setSavingKey] = useState(false);
 
     useEffect(() => {
         loadUsers();
         api.get('/admin/stats').then(r => setStats(r.data)).catch(() => {});
+        api.get('/admin/settings').then(r => setKeyStatus(r.data.hasKey ? `✅ Key set (${r.data.geminiKeyPreview})` : '❌ No key')).catch(() => {});
     }, []);
 
     async function loadUsers() {
@@ -37,7 +41,19 @@ export default function Admin() {
         }
     }
 
-    async function toggleUser(uid, active) {
+    async function saveGeminiKey() {
+        if (!geminiKey.trim()) return;
+        setSavingKey(true);
+        try {
+            await api.post('/admin/settings', { geminiApiKey: geminiKey.trim() });
+            setKeyStatus('✅ Key saved — all bots will use this key');
+            setGeminiKey('');
+        } catch (e) {
+            setKeyStatus('❌ Failed to save key');
+        } finally {
+            setSavingKey(false);
+        }
+    }
         await api.patch(`/admin/users/${uid}`, { active: !active });
         setUsers(u => u.map(x => x.uid === uid ? { ...x, active: !active } : x));
     }
@@ -72,7 +88,27 @@ export default function Admin() {
                 )}
 
                 <div className={styles.section}>
-                    <h2 className={styles.sectionTitle}>Create User</h2>
+                    <h2 className={styles.sectionTitle}>🔑 Global Gemini API Key</h2>
+                    <p style={{ color: '#8696a0', fontSize: 13, marginBottom: 12 }}>
+                        This key is used by ALL AI bots. Users don't need to set their own keys.
+                        {keyStatus && <span style={{ marginLeft: 10, color: keyStatus.startsWith('✅') ? '#25d366' : '#f59e0b' }}>{keyStatus}</span>}
+                    </p>
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                        <input
+                            className={styles.input}
+                            type="password"
+                            placeholder="AIza... (paste new Gemini API key)"
+                            value={geminiKey}
+                            onChange={e => setGeminiKey(e.target.value)}
+                            style={{ flex: 1, maxWidth: 400 }}
+                        />
+                        <button className={styles.btnPrimary} onClick={saveGeminiKey} disabled={savingKey || !geminiKey.trim()}>
+                            {savingKey ? 'Saving...' : 'Save Key'}
+                        </button>
+                    </div>
+                </div>
+
+                <div className={styles.section}>
                     <form className={styles.createForm} onSubmit={createUser}>
                         <input className={styles.input} placeholder="Username" value={form.username} onChange={e => setForm(f => ({ ...f, username: e.target.value }))} />
                         <input className={styles.input} placeholder="Display Name (optional)" value={form.displayName} onChange={e => setForm(f => ({ ...f, displayName: e.target.value }))} />
