@@ -54,6 +54,8 @@ export default function Admin() {
             setSavingKey(false);
         }
     }
+
+    async function toggleUser(uid, active) {
         await api.patch(`/admin/users/${uid}`, { active: !active });
         setUsers(u => u.map(x => x.uid === uid ? { ...x, active: !active } : x));
     }

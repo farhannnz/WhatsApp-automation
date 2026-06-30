@@ -320,6 +320,7 @@ export default function Dashboard() {
                 {/* Bottom row: Recent AI Leads + Quick Links */}
                 <div className={styles.bottomRow}>
                     {/* Recent AI Leads */}
+                    {/* Recent AI Leads */}
                     <div className={styles.recentCard}>
                         <div className={styles.recentHeader}>
                             <span>🤖 Recent AI Leads</span>
@@ -396,6 +397,10 @@ export default function Dashboard() {
                             )}
                         </div>
                     </div>
+                </div>
+
+                {/* Excluded Numbers */}
+                <div style={{ marginTop: 24 }}>
                 </div>
 
             </div>
